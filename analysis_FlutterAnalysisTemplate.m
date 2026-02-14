@@ -6,7 +6,6 @@ define_parallel_processing();
 %% Calculate the structural tensors
 % we first create the structural model - calculate the structural tensors
 % geometry and material parameters are hardcoded inside of that script
-% TODO: finish the implementations in create_LinearPlateModel
 create_LinearPlateModel
 
 % analysis parameters 
@@ -20,63 +19,14 @@ T0          = 300 ; % [K] - flow temperature is only important for the aerodynam
 % get the nondimensional parameter
 lambda = gamma * pinf_sweep * Minf * (a^3 / D);  % this is equal to rho_inf * U_inf^2 * (a^3/D)
 
-% - point spring constraint
-x_spring = 0.5 * a; y_spring = 0.0 * b;
-K_spring = 20000    ; % it will be helpful to figure out the scaling of this in terms of a, h, D, rho_m
-
-
 % physical solution visualization
 x_point = reshape(xMesh,1,[]);  y_point = reshape(yMesh,1,[]);
 
 tol = 1e-15; % dimensionless safety factor
 
-%% Sweep stiffness
-K_sweep = logspace(0, 6, 40);   % 1 to 1e6  [N/m]
-
-flutter_lambda_vs_K = nan(size(K_sweep));
-
-parfor iK = 1:length(K_sweep)
-    [flutter_lambda_vs_K(iK)] =...
-        flutter_response_for_location(...
-        x_spring, y_spring, psi_w, K_sweep(iK), pinf_sweep, lambda, Minf,...
-        struct_mat_K, struct_mat_Aw_not_scaled,...
-        struct_mat_Awdot_not_scaled, struct_mat_Minv, NModes_w, tol);
-end
-
-%% Sweep spring location
-N = [101, 101];                    % spring locations
-x_sweep = linspace(0.05*a, 0.95*a, N(1));
-y_sweep = linspace(-0.45*b, 0.45*b, N(2));
-
-Npts = N(1)*N(2);
-
-% preallocate
-flutter_lambda_vec = nan(Npts,1);   flutter_pinf_vec   = nan(Npts,1);
-coupling_ratio_vec = nan(Npts,1);   participation_ratio_vec = nan(Npts,1);
-
-parfor pidx = 1:Npts
-    [iy, ix] = ind2sub(N, pidx);
-
-    % spring-induced mode coupling metrics at this location
-    psi_c = zeros(NModes_w,1);
-    for n = 1:NModes_w
-        psi_c(n) = psi_w{n}(x_sweep(ix), y_sweep(iy));
-    end
-
-    [flutter_lambda_vec(pidx)] = flutter_response_for_location( ...
-        x_sweep(ix), y_sweep(iy), psi_w, K_spring, pinf_sweep, lambda, Minf, ...
-        struct_mat_K, struct_mat_Aw_not_scaled,...
-        struct_mat_Awdot_not_scaled, struct_mat_Minv, NModes_w, tol);
-end
-
-% reshape back to maps
-% location-flutter
-flutter_lambda_map      = reshape(flutter_lambda_vec, N);
-flutter_pinf_map        = reshape(flutter_pinf_vec,   N);
-
 %% Sweep pressure
 [xF, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = flutter_response_for_location( ...
-    x_spring, y_spring, psi_w, K_spring, pinf_sweep, lambda, Minf, ...
+    psi_w, pinf_sweep, lambda, Minf, ...
     struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, struct_mat_Minv, NModes_w, tol);
 
 if ~isnan(xF)
@@ -88,22 +38,16 @@ end
 
 reduced_freq_array = nondimentionalize...
     (gamma, T0, Minf, a, natural_frequencies_hz_array);
-plot_output(x_sweep/a, y_sweep/b, flutter_lambda_map,...
-    K_sweep*a^2/D, flutter_lambda_vs_K, lambda,...
+plot_output(lambda,...
     reduced_freq_array, damping_array);
 
 
 function [lambda_F, natural_frequencies_hz_array,...
     damping_array, unstable, max_real_eig] = ...
     flutter_response_for_location...
-    (x_spring, y_spring, psi_w, K_spring, pinf_sweep, lambda, Minf, ...
+    (psi_w, pinf_sweep, lambda, Minf, ...
     struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled,...
     struct_mat_Minv, NModes_w, tol)
-
-    % TODO: finish the implementations in create_K_spring_at_point(...)
-    struct_mat_K_spring_not_scaled = create_K_spring_at_point...
-        (psi_w, x_spring, y_spring);
-    struct_mat_K_spring = K_spring * struct_mat_K_spring_not_scaled;
 
     disc = length(pinf_sweep);
 
@@ -132,7 +76,7 @@ function [lambda_F, natural_frequencies_hz_array,...
         % calculate the total stiffness term
         %    K_tot = K + K_s + Aw
         struct_mat_K_total = ...
-            struct_mat_K + struct_mat_K_spring + struct_mat_Aw;
+            struct_mat_K + struct_mat_Aw;
 
         % calculate the total damping term if you choose to consider
         struct_mat_C_total = struct_mat_Awdot;
@@ -181,27 +125,8 @@ function [lambda_F, natural_frequencies_hz_array,...
 end
 
 function plot_output...
-                (x_sweep_scaled, y_sweep_scaled, flutter_lambda_map,...
-                K_sweep, flutter_lambda_vs_K, lambda, reduced_freq_array,...
+                (lambda, reduced_freq_array,...
                 damping_array)
-            % Plot flutter onset map
-            figure(); hold on; grid off;
-            imagesc(x_sweep_scaled, y_sweep_scaled, flutter_lambda_map);
-            set(gca,'YDir','normal');
-            axis equal;
-            cb = colorbar;
-            set(gca,'FontSize',18)
-            ylabel(cb,'$\lambda_F$','Interpreter','latex','FontSize',50);
-            xlabel('$x_c/a$','Interpreter','latex','FontSize',50);
-            ylabel('$y_c/b$','Interpreter','latex','FontSize',50);
-
-            % Plot flutter onset vs spring stiffness (nondimensional)
-            figure(); hold on; grid off;box on;
-            semilogx(K_sweep, flutter_lambda_vs_K, 'o-', 'LineWidth', 2.5, 'MarkerSize', 8);
-            xlim([3, 12170]);
-            set(gca,'FontSize',18)
-            xlabel('$K_{\mathrm{spring}}$','Interpreter','latex','FontSize',50);
-            ylabel('$\lambda$','Interpreter','latex','FontSize',50);
 
             % Plot flutter onset vs spring stiffness (pressure)
             figure();hold on;grid off;
