@@ -9,9 +9,7 @@ define_parallel_processing();
 create_AiryStressPlateModel
 
 %% Analysis setup
-gamma = 1.4;
-Minf = 4.0;
-params = build_analysis_params(NModes_w, xMesh, yMesh, gamma, Minf, a, D);
+params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
 
 %% Pressure sweep
 [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
@@ -43,18 +41,20 @@ reduced_freq_array = nondimentionalize( ...
 plot_output(w_max, params.pinf_sweep, params.lambda, reduced_freq_array, damping_array);
 
 
-function params = build_analysis_params(NModes_w, xMesh, yMesh, gamma, Minf, a, D)
-    params.T_max_nonlinear_solution = 1;
-    params.q_qdot_ics = zeros(2 * NModes_w, 1); % plate starts flat
-
+function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
+    params.T_max_nonlinear_solution = 10;
+    q0 = zeros(NModes_w,1);
+    q0(1) = 1e-6;                       % tiny displacement perturbation
+    params.q_qdot_ics = [q0; zeros(NModes_w,1)];
+    
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc = 200;
+    params.disc = 10;
     params.pinf_sweep = linspace(0, 75e3, params.disc); % [Pa]
-    params.gamma = gamma;
-    params.Minf = Minf;
-    params.T0 = 400; % [K], used for aerodynamic damping nondimensionalization
+    params.gamma = 1.4;
+    params.Minf = 4.0;
+    params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
 
     params.lambda = params.gamma * params.pinf_sweep * params.Minf * (a^3 / D);
     params.tol = 1e-15; % dimensionless safety factor
@@ -75,7 +75,7 @@ function [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable
     max_real_eig = zeros(1, n_pressures);
     unstable = false(1, n_pressures);
 
-    for idx = 1:n_pressures
+    parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
         struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
@@ -85,13 +85,10 @@ function [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable
 
         [~, w_modal] = ode45(rhs_local, [0, T_max_nonlinear_solution], q_qdot_ics);
 
-        w_static_modal = w_modal(end, 1:NModes_w).';
-
         w_phys_all = modal2physical(w_modal(end, 1:NModes_w), x_point, y_point, psi_w);
         w_max(idx) = max(abs(w_phys_all), [], 'all');
 
-        struct_mat_K_deformed = nonlinear_added_stiffness(struct_mat_L2, w_static_modal);
-        struct_mat_K_total = struct_mat_K + struct_mat_Aw - struct_mat_K_deformed;
+        struct_mat_K_total = struct_mat_K + struct_mat_Aw;
 
         [natural_frequencies_hz_array(:, idx), damping_array(:, idx), max_real_eig(idx), omega_scale] = ...
             solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w);
@@ -113,16 +110,9 @@ function struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i,
     struct_mat_Aw = coeff_Aw * struct_mat_Aw_not_scaled;
 end
 
+function [natural_frequencies_hz, damping, max_real_eig, omega_scale] =...
+    solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w)
 
-function struct_mat_K_deformed = nonlinear_added_stiffness(struct_mat_L2, w_s)
-    struct_mat_K_deformed = ...
-        tensorprod(tensorprod(struct_mat_L2, w_s, 2, 1), w_s, 3, 1) + ...
-        tensorprod(tensorprod(struct_mat_L2, w_s, 3, 1), w_s, 3, 1) + ...
-        tensorprod(tensorprod(struct_mat_L2, w_s, 2, 1), w_s, 2, 1);
-end
-
-
-function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w)
     A = [zeros(NModes_w), eye(NModes_w); ...
          -struct_mat_Minv * struct_mat_K_total, zeros(NModes_w)];
 
@@ -141,13 +131,14 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = solve_co
 end
 
 
-function plot_output(w_max, p_sweep, lambda, reduced_freq_array, damping_array) %#ok<INUSD>
+function plot_output(w_max, p_sweep, lambda, reduced_freq_array, damping_array)
     figure();
     hold on;
     grid off;
-    scatter(p_sweep, w_max, '.', 'MarkerEdgeAlpha', 1);
+    plot(p_sweep, w_max, '-x', 'LineWidth', 1.5);  
     set(gca, 'FontSize', 18);
-    xlim([0, max(p_sweep)]);
+    % xlim([0, max(p_sweep)]);
+    % ylim([w_max(2), max(w_max)]);
     ylabel('$w_{max}$', 'Interpreter', 'latex', 'FontSize', 50);
     xlabel('$p_{\infty}$', 'Interpreter', 'latex', 'FontSize', 50);
 end
