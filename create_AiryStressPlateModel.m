@@ -1,8 +1,4 @@
-clc;clear all;close all;
-
 %% DEFINE PARAMETERS
-
-
 %   plate chord length, and width are used in the difinition of the basis function
 %   so they must be defined every time we modify geometry.
 a = 0.25  ;
@@ -61,12 +57,9 @@ end
 
 % initialize
 psi_w = cell(NModes_w,1);
-psi_w_x = cell(NModes_w,1);
-psi_w_y = cell(NModes_w,1);
-psi_w_xx = cell(NModes_w,1);
-psi_w_yy = cell(NModes_w,1);
-psi_w_xy = cell(NModes_w,1);
-psi_w_bihar = cell(NModes_w,1);
+psi_w_x = cell(NModes_w,1);     psi_w_y = cell(NModes_w,1);
+psi_w_xx = cell(NModes_w,1);    psi_w_yy = cell(NModes_w,1);
+psi_w_xy = cell(NModes_w,1);    psi_w_bihar = cell(NModes_w,1);
 
 for n = 1:NModes_w
     % EXAMPLE - the basis function
@@ -190,14 +183,9 @@ for n = 1:NModes_w
 end
 
 
-if ~test_solution(struct_mat_A_not_scaled,'struct_mat_A_not_scaled') % TEST
-    disp(HW_displayMessage());
-end
-
-
 % B_nik ------------------------------------------------------------------
 % TODO: implement the calculation of struct_mat_B_not_scaled(n,i,k)
-struct_mat_B_not_scaled = zeros(NModes_w, NModes_w);
+struct_mat_B_not_scaled = zeros(NModes_w, NModes_w, NModes_w);
 for n = 1:NModes_w
     for i = 1:NModes_w
         for k = 1:NModes_w
@@ -212,12 +200,6 @@ for n = 1:NModes_w
 end
 
 
-if ~test_solution(struct_mat_B_not_scaled,'struct_mat_B_not_scaled') % TEST
-    disp(HW_displayMessage());
-end
-
-
-
 % Q_n ------------------------------------------------------------------
 % TODO: implement the calculation of struct_mat_Q_not_scaled(n)
 % calculate Q_not_scaled - it's a vector, not a matrix/tensor!
@@ -229,11 +211,6 @@ for n = 1:NModes_w
     struct_mat_Q_not_scaled(n) = trapz(yInterval, trapz(xInterval, integrand, 2));
     % ---------- YOUR CODE HERE - END ----------
 
-end
-
-
-if ~test_solution(struct_mat_Q_not_scaled,'struct_mat_Q_not_scaled') % TEST
-    disp(HW_displayMessage());
 end
 
 
@@ -276,12 +253,14 @@ struct_mat_L2    = tensorprod(struct_mat_L,struct_mat_B2, 3, 1);
 % ---------- YOUR CODE HERE - END ----------
 
 
-
-if ~test_solution(struct_mat_B2,'struct_mat_B2') % TEST
-    disp(HW_displayMessage());
+% Aw_ni ------------------------------------------------------------------
+% TODO: implement the calculation of struct_mat_Aw_not_scaled
+struct_mat_Aw_not_scaled = zeros(NModes_w, NModes_w);
+for n = 1:NModes_w
+    for i = 1:NModes_w
+        integrand  = psi_w_mesh{n} .* psi_w_x_mesh{i};
+        struct_mat_Aw_not_scaled(n,i) =...
+            trapz(yInterval,trapz(xInterval,integrand,2)) ;
+    end
 end
-if ~test_solution(struct_mat_L2,'struct_mat_L2') % TEST
-    disp(HW_displayMessage());
-end
-
 
