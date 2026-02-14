@@ -9,6 +9,8 @@ define_parallel_processing();
 create_AiryStressPlateModel
 
 %% Analysis setup
+gamma = 1.4;
+Minf = 4.0;
 params = build_analysis_params(NModes_w, xMesh, yMesh, gamma, Minf, a, D);
 
 %% Pressure sweep
@@ -16,6 +18,7 @@ params = build_analysis_params(NModes_w, xMesh, yMesh, gamma, Minf, a, D);
     psi_w, ...
     params.pinf_sweep, ...
     params.lambda, ...
+    params.gamma, ...
     params.Minf, ...
     struct_mat_K, ...
     struct_mat_Aw_not_scaled, ...
@@ -59,7 +62,7 @@ end
 
 
 function [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
-    psi_w, pinf_sweep, lambda, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
+    psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
     struct_mat_Minv, NModes_w, tol, T_max_nonlinear_solution, q_qdot_ics, ...
     struct_mat_L2, x_point, y_point)
 
@@ -75,7 +78,7 @@ function [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable
     for idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
-        struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, Minf);
+        struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
 
         rhs_local = @(t, y) rhs_func_aero( ...
             t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw);
@@ -105,8 +108,7 @@ function [w_max, lambda_F, natural_frequencies_hz_array, damping_array, unstable
 end
 
 
-function struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, Minf)
-    gamma = 1.4;
+function struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf)
     coeff_Aw = gamma * pinf_i * Minf;
     struct_mat_Aw = coeff_Aw * struct_mat_Aw_not_scaled;
 end
