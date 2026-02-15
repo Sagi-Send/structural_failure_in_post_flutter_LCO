@@ -45,7 +45,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
-    params.q_qdot_ics = zeros(2 * NModes_w,1);
+    params.q_qdot_ics = [q0; zeros(NModes_w,1)];
     
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
@@ -79,10 +79,8 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
 
         struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
 
-        deltaP_single_case = 1 ; % [kPa]
-        struct_mat_Q = deltaP_single_case * struct_mat_Q_not_scaled ;
         rhs_local = @(t, y) rhs_func_aero( ...
-            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw, struct_mat_Q);
+            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
 
@@ -156,7 +154,10 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
         % if lambda(i) < lambda_F
             plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
                 'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
-        % else
+        if lambda(i) > lambda_F
+            break;
+        end
+            % else
         %     plot(t_eval, w_center(flutter_onset_idx,:)/h, 'LineWidth', 1.5, ...
         %         'DisplayName', sprintf('$\\lambda_F = %.1f$', lambda(flutter_onset_idx)));
         %     break;

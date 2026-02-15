@@ -1,5 +1,5 @@
 function f = rhs_func_aero(t, y, NModes_w, struct_mat_Minv, struct_mat_K, ...
-                        struct_mat_L2, Aw, Q_static_load)
+                        struct_mat_L2, Aw)
     q    = y(1:NModes_w,1);
     qdot = y(NModes_w + 1: NModes_w * 2,1);
 
@@ -18,6 +18,6 @@ function f = rhs_func_aero(t, y, NModes_w, struct_mat_Minv, struct_mat_K, ...
     % TODO: complete the calculation of RHS forces term
     % ---------- YOUR CODE HERE - START ----------
     f(NModes_w + 1: NModes_w * 2,1) = -1 * struct_mat_Minv * ( ...
-        (struct_mat_K + Aw) * q - Lqqq - Q_static_load);
+        (struct_mat_K + Aw) * q - Lqqq);
     % ---------- YOUR CODE HERE - END ----------
 end
