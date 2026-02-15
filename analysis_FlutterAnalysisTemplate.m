@@ -79,7 +79,7 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
 
         struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
 
-        deltaP_single_case = 1e3 ; % [kPa]
+        deltaP_single_case = 1 ; % [kPa]
         struct_mat_Q = deltaP_single_case * struct_mat_Q_not_scaled ;
         rhs_local = @(t, y) rhs_func_aero( ...
             t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw, struct_mat_Q);
@@ -153,14 +153,14 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     
     for k = 1:numel(idx_show)
         i = idx_show(k);
-        if lambda(i) < lambda_F
+        % if lambda(i) < lambda_F
             plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
                 'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
-        else
-            plot(t_eval, w_center(flutter_onset_idx,:)/h, 'LineWidth', 1.5, ...
-                'DisplayName', sprintf('$\\lambda_F = %.1f$', lambda(flutter_onset_idx)));
-            break;
-        end
+        % else
+        %     plot(t_eval, w_center(flutter_onset_idx,:)/h, 'LineWidth', 1.5, ...
+        %         'DisplayName', sprintf('$\\lambda_F = %.1f$', lambda(flutter_onset_idx)));
+        %     break;
+        % end
     end
     
     set(gca,'FontSize',18);
@@ -179,13 +179,13 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     ylabel('$\zeta$','Interpreter','latex','FontSize',24);
 
     % ---------------- deflection vs lambda ----------------
-    nexttile; hold on;  grid off;
-    plot(lambda, abs(w_center/h), '-x', 'LineWidth', 1.5);  
-    set(gca, 'FontSize', 18);
-    % xlim([0, max(p_sweep)]);
-    % ylim([w_max(2), max(w_max)]);
-    ylabel('$w_{center}/h$', 'Interpreter', 'latex', 'FontSize', 50);
-    xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
+    % nexttile; hold on;  grid off;
+    % plot(lambda, abs(w_center/h), '-x', 'LineWidth', 1.5);  
+    % set(gca, 'FontSize', 18);
+    % % xlim([0, max(p_sweep)]);
+    % % ylim([w_max(2), max(w_max)]);
+    % ylabel('$w_{center}/h$', 'Interpreter', 'latex', 'FontSize', 50);
+    % xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
 end
 
 
