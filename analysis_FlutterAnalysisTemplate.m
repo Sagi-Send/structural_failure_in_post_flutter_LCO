@@ -23,12 +23,9 @@ params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
     struct_mat_Minv, ...
     NModes_w, ...
     params.tol, ...
-    params.T_max_nonlinear_solution, ...
     params.t_eval, ...
     params.q_qdot_ics, ...
-    struct_mat_L2, ...
-    params.x_points, ...
-    params.y_points, a);
+    struct_mat_L2, a);
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -53,7 +50,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc = 10;
+    params.disc = 200;
     params.pinf_sweep = linspace(0, 75e3, params.disc); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
@@ -66,8 +63,7 @@ end
 
 function [w_center, lambda_F, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
-    struct_mat_Minv, NModes_w, tol, T_max_nonlinear_solution, t_eval, q_qdot_ics, ...
-    struct_mat_L2, x_point, y_point, a)
+    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a)
 
     n_pressures = numel(pinf_sweep);
 
@@ -155,21 +151,34 @@ function plot_output(w_center, lambda, h, reduced_freq_array, damping_array, t_e
     % ylabel('$w_{max}/h$', 'Interpreter', 'latex', 'FontSize', 50);
     % xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
 
-    figure; hold on; grid off;
-
-    n_show = min(4, numel(lambda));  % show up to 5 curves
-    idx_show = round(linspace(1, numel(lambda), n_show));
-
-    for k = 1:numel(idx_show)-1
+    figure;
+    tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
+    
+    % ---------------- Left panel: w_center(t)/h for selected lambdas ----------------
+    nexttile; hold on; grid off;
+    
+    n_show   = min(4, numel(lambda));                 % show up to 4 curves
+    idx_show = unique(round(linspace(1, numel(lambda), n_show)));
+    
+    for k = 1:numel(idx_show)
         i = idx_show(k);
         plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
             'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
-        legend('show','Interpreter','latex');
     end
-
+    
+    set(gca,'FontSize',18);
     xlabel('$t$','Interpreter','latex','FontSize',24);
-    ylabel('$w_{max}(t)/h$','Interpreter','latex','FontSize',24);
-    legend('Location','best');
+    ylabel('$w_{center}(t)/h$','Interpreter','latex','FontSize',24);
+    legend('show','Interpreter','latex','Location','best');
+    
+    % ---------------- Right panel: damping vs lambda ----------------
+    nexttile; hold on; grid off;
+    
+    scatter(lambda, damping_array, 300, '.', 'MarkerEdgeAlpha', 1);
+    set(gca,'FontSize',18);
+    xlim([0, 1300]);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',24);
+    ylabel('$\zeta$','Interpreter','latex','FontSize',24);
 end
 
 
