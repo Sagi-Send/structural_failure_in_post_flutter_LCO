@@ -24,7 +24,7 @@ integrand         = zeros(integrationPoints, integrationPoints);
 
 
 % Mode ordering --------------------------------------------------------
-modeOrder_w_x  = 1:8 ;  % chord-wise modes
+modeOrder_w_x  = 1:4 ;  % chord-wise modes
 modeOrder_w_y  = 1:4 ;  % span-wise modes
 
 % now collect them in pairs
@@ -260,6 +260,16 @@ for n = 1:NModes_w
     for i = 1:NModes_w
         integrand  = psi_w_mesh{n} .* psi_w_x_mesh{i};
         struct_mat_Aw_not_scaled(n,i) =...
+            trapz(yInterval,trapz(xInterval,integrand,2)) ;
+    end
+end
+
+% Aw_dot_ni ------------------------------------------------------------------
+struct_mat_Awdot_not_scaled = zeros(NModes_w, NModes_w);
+for n = 1:NModes_w
+    for i = 1:NModes_w
+        integrand  = psi_w_mesh{n} .* psi_w_mesh{i};
+        struct_mat_Awdot_not_scaled(n,i) =...
             trapz(yInterval,trapz(xInterval,integrand,2)) ;
     end
 end
