@@ -40,8 +40,8 @@ plot_output(w_center, params.lambda, lambda_F, flutter_onset_idx, h, reduced_fre
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
-    params.T_max_nonlinear_solution = 1;
-    params.Nt = 200;
+    params.T_max_nonlinear_solution = 0.5;
+    params.Nt = 100;                    % A Nt/T=200 ratio looks best.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
@@ -98,10 +98,10 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
         w_center(idx,:) = w_center_local;
 
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
-        structu_mat_C = struct_mat_Awdot;
+        struct_mat_C = struct_mat_Awdot;
 
         [natural_frequencies_hz_array(:, idx), damping_array(:, idx), max_real_eig(idx), omega_scale] = ...
-            solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w);
+            solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, struct_mat_C, NModes_w);
 
         unstable(idx) = max_real_eig(idx) > (omega_scale * tol);
     end
@@ -127,10 +127,10 @@ function [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping(struc
 end
 
 function [natural_frequencies_hz, damping, max_real_eig, omega_scale] =...
-    solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w)
+    solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, struct_mat_C, NModes_w)
 
     A = [zeros(NModes_w), eye(NModes_w); ...
-         -struct_mat_Minv * struct_mat_K_total, zeros(NModes_w)];
+         -struct_mat_Minv * struct_mat_K_total, -struct_mat_Minv * struct_mat_C];
 
     eigvals_all = eig(A);
     max_real_eig = max(real(eigvals_all));
