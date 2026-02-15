@@ -12,7 +12,7 @@ create_AiryStressPlateModel
 params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
 
 %% Pressure sweep
-[w_center, lambda_F, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
+[w_center, lambda_F, flutter_onset_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, ...
     params.pinf_sweep, ...
     params.lambda, ...
@@ -36,7 +36,7 @@ end
 reduced_freq_array = nondimentionalize( ...
     params.gamma, params.T0, params.Minf, a, natural_frequencies_hz_array);
 
-plot_output(w_center, params.lambda, h, reduced_freq_array, damping_array, params.t_eval);
+plot_output(w_center, params.lambda, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, params.t_eval);
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
@@ -61,7 +61,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
 end
 
 
-function [w_center, lambda_F, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
+function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
     struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a)
 
@@ -74,7 +74,6 @@ function [w_center, lambda_F, natural_frequencies_hz_array, damping_array, unsta
     damping_array = zeros(NModes_w, n_pressures);
     max_real_eig = zeros(1, n_pressures);
     unstable = false(1, n_pressures);
-
     parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
@@ -140,7 +139,7 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] =...
 end
 
 
-function plot_output(w_center, lambda, h, reduced_freq_array, damping_array, t_eval)
+function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
     % figure();
     % hold on;
     % grid off;
@@ -162,8 +161,14 @@ function plot_output(w_center, lambda, h, reduced_freq_array, damping_array, t_e
     
     for k = 1:numel(idx_show)
         i = idx_show(k);
-        plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
-            'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
+        if lambda(i) < lambda_F
+            plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
+                'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
+        else
+            plot(t_eval, w_center(flutter_onset_idx,:)/h, 'LineWidth', 1.5, ...
+                'DisplayName', sprintf('$\\lambda_F = %.1f$', lambda(flutter_onset_idx)));
+            break;
+        end
     end
     
     set(gca,'FontSize',18);
