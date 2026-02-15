@@ -25,7 +25,7 @@ params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
     params.tol, ...
     params.t_eval, ...
     params.q_qdot_ics, ...
-    struct_mat_L2, a);
+    struct_mat_L2, a, struct_mat_Q_not_scaled);
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -40,12 +40,12 @@ plot_output(w_center, params.lambda, lambda_F, flutter_onset_idx, h, reduced_fre
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
-    params.T_max_nonlinear_solution = 0.05;
+    params.T_max_nonlinear_solution = 0.5;
     params.Nt = 500;
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
-    params.q_qdot_ics = [q0; zeros(NModes_w,1)];
+    params.q_qdot_ics = zeros(2 * NModes_w,1);
     
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
@@ -63,7 +63,7 @@ end
 
 function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
-    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a)
+    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a, struct_mat_Q_not_scaled)
 
     n_pressures = numel(pinf_sweep);
 
@@ -79,8 +79,10 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
 
         struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
 
+        deltaP_single_case = 1e3 ; % [kPa]
+        struct_mat_Q = deltaP_single_case * struct_mat_Q_not_scaled ;
         rhs_local = @(t, y) rhs_func_aero( ...
-            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw);
+            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw, struct_mat_Q);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
 
@@ -140,20 +142,10 @@ end
 
 
 function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
-    % figure();
-    % hold on;
-    % grid off;
-    % plot(lambda, w_max/h, '-x', 'LineWidth', 1.5);  
-    % set(gca, 'FontSize', 18);
-    % % xlim([0, max(p_sweep)]);
-    % % ylim([w_max(2), max(w_max)]);
-    % ylabel('$w_{max}/h$', 'Interpreter', 'latex', 'FontSize', 50);
-    % xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
-
     figure;
-    tiledlayout(1,2,'TileSpacing','compact','Padding','compact');
+    tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
     
-    % ---------------- Left panel: w_center(t)/h for selected lambdas ----------------
+    % ---------------- w_center(t)/h for selected lambdas ----------------
     nexttile; hold on; grid off;
     
     n_show   = min(4, numel(lambda));                 % show up to 4 curves
@@ -175,8 +167,9 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     xlabel('$t$','Interpreter','latex','FontSize',24);
     ylabel('$w_{center}(t)/h$','Interpreter','latex','FontSize',24);
     legend('show','Interpreter','latex','Location','best');
+    xlim([0, t_eval(end)]);
     
-    % ---------------- Right panel: damping vs lambda ----------------
+    % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
     
     scatter(lambda, damping_array, 300, '.', 'MarkerEdgeAlpha', 1);
@@ -184,6 +177,15 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     xlim([0, 1300]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$\zeta$','Interpreter','latex','FontSize',24);
+
+    % ---------------- deflection vs lambda ----------------
+    nexttile; hold on;  grid off;
+    plot(lambda, abs(w_center/h), '-x', 'LineWidth', 1.5);  
+    set(gca, 'FontSize', 18);
+    % xlim([0, max(p_sweep)]);
+    % ylim([w_max(2), max(w_max)]);
+    ylabel('$w_{center}/h$', 'Interpreter', 'latex', 'FontSize', 50);
+    xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
 end
 
 
