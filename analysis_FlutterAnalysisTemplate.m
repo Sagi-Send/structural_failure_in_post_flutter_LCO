@@ -40,8 +40,8 @@ plot_output(w_center, params.lambda, lco_amp, lambda_F, flutter_onset_idx, h, re
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
-    params.T_max_nonlinear_solution = 2;
-    params.Nt = 400;                    % A Nt/T=200 ratio looks best.
+    params.T_max_nonlinear_solution = 9;
+    params.Nt = 900;                    % A Nt/T=100 ratio looks best.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
@@ -169,22 +169,28 @@ function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, re
     % ---------------- w_center(t)/h for selected lambdas ----------------
     nexttile; hold on; grid off;
     
-    n_show   = min(4, numel(lambda));                 % show up to 4 curves
+    % n_show   = min(4, numel(lambda));                 % show up to 4 curves
+    % idx_show = unique(round(linspace(1, numel(lambda), n_show)));
+    % 
+    % for k = 1:numel(idx_show)
+    %     i = idx_show(k);
+    %     plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
+    %         'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
+    %     if lambda(i) > lambda_F
+    %         break;
+    %     end
+    % end
+
+    % finding the LCO amp. drop
+    n_show   = min(400, numel(lambda));
     idx_show = unique(round(linspace(1, numel(lambda), n_show)));
     
     for k = 1:numel(idx_show)
         i = idx_show(k);
-        % if lambda(i) < lambda_F
-            plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
-                'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
-        if lambda(i) > lambda_F
-            break;
+        if abs(lambda(i) - 1147.26) < 1
+        plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
+            'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
         end
-            % else
-        %     plot(t_eval, w_center(flutter_onset_idx,:)/h, 'LineWidth', 1.5, ...
-        %         'DisplayName', sprintf('$\\lambda_F = %.1f$', lambda(flutter_onset_idx)));
-        %     break;
-        % end
     end
     
     set(gca,'FontSize',18);
