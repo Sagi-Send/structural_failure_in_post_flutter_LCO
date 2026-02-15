@@ -28,7 +28,6 @@ function w_phys = modal2physical(q, x_point, y_point, psi_w)
     % psi_w_at_xy is [NModes_w x num_of_xy_points]
     
     % w_phys - of dimension [T x num_of_xy_points]
-    w_phys = zeros(size(q,1),num_of_xy_points);
     w_phys = q * psi_w_at_xy; 
     
 end
