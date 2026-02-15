@@ -264,3 +264,13 @@ for n = 1:NModes_w
     end
 end
 
+% Aw_dot_ni ------------------------------------------------------------------
+struct_mat_Awdot_not_scaled = zeros(NModes_w, NModes_w);
+for n = 1:NModes_w
+    for i = 1:NModes_w
+        integrand  = psi_w_mesh{n} .* psi_w_mesh{i};
+        struct_mat_Awdot_not_scaled(n,i) =...
+            trapz(yInterval,trapz(xInterval,integrand,2)) ;
+    end
+end
+

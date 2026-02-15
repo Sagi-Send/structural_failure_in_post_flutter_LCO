@@ -25,7 +25,7 @@ params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
     params.tol, ...
     params.t_eval, ...
     params.q_qdot_ics, ...
-    struct_mat_L2, a, struct_mat_Q_not_scaled);
+    struct_mat_L2, a, struct_mat_Awdot_not_scaled, params.T0);
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -40,8 +40,8 @@ plot_output(w_center, params.lambda, lambda_F, flutter_onset_idx, h, reduced_fre
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
-    params.T_max_nonlinear_solution = 0.5;
-    params.Nt = 500;
+    params.T_max_nonlinear_solution = 1;
+    params.Nt = 200;
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
@@ -63,7 +63,7 @@ end
 
 function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
-    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a, struct_mat_Q_not_scaled)
+    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a, struct_mat_Awdot_not_scaled, T0)
 
     n_pressures = numel(pinf_sweep);
 
@@ -77,10 +77,11 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
     parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
-        struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf);
+        [struct_mat_Aw, struct_mat_Awdot] = ...
+            aerodynamic_stiffness_damping(struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, pinf_i, gamma, Minf, T0);
 
         rhs_local = @(t, y) rhs_func_aero( ...
-            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw);
+            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw, struct_mat_Awdot);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
 
@@ -97,6 +98,7 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
         w_center(idx,:) = w_center_local;
 
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
+        structu_mat_C = struct_mat_Awdot;
 
         [natural_frequencies_hz_array(:, idx), damping_array(:, idx), max_real_eig(idx), omega_scale] = ...
             solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, NModes_w);
@@ -113,9 +115,15 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
 end
 
 
-function struct_mat_Aw = aerodynamic_stiffness(struct_mat_Aw_not_scaled, pinf_i, gamma, Minf)
+function [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping(struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, pinf_i, gamma, Minf, T0)
     coeff_Aw = gamma * pinf_i * Minf;
     struct_mat_Aw = coeff_Aw * struct_mat_Aw_not_scaled;
+
+    Rgas = 287;                 % [J/(kg*K)]
+    a_inf = sqrt(gamma * Rgas * T0);
+
+    coeff_Awdot = gamma * pinf_i / a_inf; 
+    struct_mat_Awdot = coeff_Awdot * struct_mat_Awdot_not_scaled;
 end
 
 function [natural_frequencies_hz, damping, max_real_eig, omega_scale] =...
