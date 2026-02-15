@@ -12,7 +12,7 @@ create_AiryStressPlateModel
 params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
 
 %% Pressure sweep
-[w_center, lambda_F, flutter_onset_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
+[w_center, lambda_F, lco_amp, flutter_onset_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, ...
     params.pinf_sweep, ...
     params.lambda, ...
@@ -36,12 +36,12 @@ end
 reduced_freq_array = nondimentionalize( ...
     params.gamma, params.T0, params.Minf, a, natural_frequencies_hz_array);
 
-plot_output(w_center, params.lambda, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, params.t_eval);
+plot_output(w_center, params.lambda, lco_amp, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, params.t_eval);
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
-    params.T_max_nonlinear_solution = 0.5;
-    params.Nt = 100;                    % A Nt/T=200 ratio looks best.
+    params.T_max_nonlinear_solution = 2;
+    params.Nt = 400;                    % A Nt/T=200 ratio looks best.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
@@ -50,7 +50,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc = 200;
+    params.disc = 50;
     params.pinf_sweep = linspace(0, 75e3, params.disc); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
@@ -61,7 +61,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
 end
 
 
-function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
+function [w_center, lambda_F, lco_amps, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
     psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
     struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a, struct_mat_Awdot_not_scaled, T0)
 
@@ -74,6 +74,7 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
     damping_array = zeros(NModes_w, n_pressures);
     max_real_eig = zeros(1, n_pressures);
     unstable = false(1, n_pressures);
+    lco_amps = zeros(1, n_pressures);
     parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
@@ -96,6 +97,8 @@ function [w_center, lambda_F, first_unstable_idx, natural_frequencies_hz_array, 
                 w_modal(it, 1:NModes_w), x_c, y_c, psi_w);
         end
         w_center(idx,:) = w_center_local;
+        lco_amp = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
+        lco_amps(idx) = lco_amp;
 
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
         struct_mat_C = struct_mat_Awdot;
@@ -146,8 +149,20 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] =...
     damping = sigma ./ omega_rad_s;
 end
 
+% Estimate LCO amplitude from a scalar time series w(t).
+function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
+    if nargin < 3 || isempty(transientFrac), transientFrac = 0.33; end
 
-function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
+    Nt = numel(t);
+    i0 = max(1, floor(transientFrac*Nt) + 1); % index where steady window starts
+    w_ss = w(i0:end);
+
+    lco_amp = 0.5*(max(w_ss) - min(w_ss));
+end
+
+
+
+function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
     figure;
     tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
     
@@ -174,7 +189,7 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     
     set(gca,'FontSize',18);
     xlabel('$t$','Interpreter','latex','FontSize',24);
-    ylabel('$w_{center}(t)/h$','Interpreter','latex','FontSize',24);
+    ylabel('$w_{center}/h$','Interpreter','latex','FontSize',24);
     legend('show','Interpreter','latex','Location','best');
     xlim([0, t_eval(end)]);
     
@@ -186,6 +201,15 @@ function plot_output(w_center, lambda, lambda_F, flutter_onset_idx, h, reduced_f
     xlim([0, 1300]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$\zeta$','Interpreter','latex','FontSize',24);
+
+    % ---------------- lambda vs LCO amp ----------------
+    nexttile; hold on; grid off;
+    
+    plot(lambda, A_LCO/h, '-o'); xlabel('\lambda'); ylabel('A_{LCO}/h');
+    set(gca,'FontSize',18);
+    xlim([0, 1300]);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',24);
+    ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
 
     % ---------------- deflection vs lambda ----------------
     % nexttile; hold on;  grid off;
