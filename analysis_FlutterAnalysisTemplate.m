@@ -32,8 +32,8 @@ end
 
 reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array);
 
-plot_output(params, w_center, lco_amp, lambda_F, ...
-    flutter_onset_idx, h, reduced_freq_array, damping_array);
+plot_output(params, w_center, lco_amp, lambda_F,...
+    flutter_onset_idx, h, reduced_freq_array, damping_array, vm_upper, vm_lower);
 
 % vm_upper / vm_lower are available for post-processing
 % e.g., max over time and surfaces:
@@ -282,14 +282,18 @@ function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
 end
 
 
-function plot_output ...
-    (params, w_center, A_LCO, lambda_F, flutter_onset_idx, h, ...
-    reduced_freq_array, damping_array)
+function plot_output...
+    (params, w_center, A_LCO, lambda_F, flutter_onset_idx, h,...
+    reduced_freq_array, damping_array, vm_upper, vm_lower)
+
     lambda = params.lambda;
     t_eval = params.t_eval;
+    pinf   = params.pinf_sweep;
+    a      = params.a;
+    b      = params.b;
 
     figure;
-    tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
+    tiledlayout(2,3,'TileSpacing','compact','Padding','compact');
 
     % ---------------- w_center(t)/h for selected lambdas ----------------
     nexttile; hold on; grid off;
@@ -328,6 +332,52 @@ function plot_output ...
     xlim([0, 1300]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
+
+    % ---------------- max VM vs p_inf ----------------
+    % max over surfaces, then time, then points (for each pressure)
+    vm_surf     = max(cat(4, vm_upper, vm_lower), [], 4);   % [nP x nPts x Nt]
+    vm_pt_time  = squeeze(max(vm_surf, [], 3));             % [nP x nPts]
+    [vm_max_p, idx_pt] = max(vm_pt_time, [], 2);            % [nP x 1], [nP x 1]
+
+    nexttile; hold on; grid off;
+    plot(pinf, vm_max_p, '-o', 'LineWidth', 1.5);
+    set(gca,'FontSize',18);
+    xlabel('$p_\infty$ [Pa]','Interpreter','latex','FontSize',24);
+    ylabel('$\max \sigma_{\mathrm{VM}}$ [Pa]','Interpreter','latex','FontSize',24);
+
+    % mark flutter onset on VM curve (if available)
+    if ~isnan(lambda_F) && ~isempty(flutter_onset_idx)
+        plot(pinf(flutter_onset_idx), vm_max_p(flutter_onset_idx), 'ks', ...
+            'MarkerSize', 10, 'LineWidth', 2, 'DisplayName','flutter onset');
+        legend('show','Interpreter','latex','Location','best');
+    end
+
+    % ---------------- location of max VM on the panel ----------------
+    % reconstruct the same stress grid used in pressure_sweep
+    x_lin = linspace(0, a, params.disc_stress);
+    y_lin = linspace(-b/2, b/2, params.disc_stress);
+    [Xg, Yg] = meshgrid(x_lin, y_lin);
+    x_points = reshape(Xg, 1, []);
+    y_points = reshape(Yg, 1, []);
+
+    x_max = x_points(idx_pt);
+    y_max = y_points(idx_pt);
+
+    nexttile; hold on; grid on;
+    scatter(x_max, y_max, 60, pinf, 'filled');  % color by pressure
+    cb = colorbar; cb.Label.String = 'p_\infty [Pa]';
+    set(gca,'FontSize',18);
+    xlabel('$x$ [m]','Interpreter','latex','FontSize',24);
+    ylabel('$y$ [m]','Interpreter','latex','FontSize',24);
+    title('Location of $\max\sigma_{\mathrm{VM}}$','Interpreter','latex');
+    xlim([0, a]); ylim([-b/2, b/2]);
+    axis equal;
+
+    % highlight flutter-onset location if available
+    if ~isnan(lambda_F) && ~isempty(flutter_onset_idx)
+        plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
+            'MarkerSize', 14, 'LineWidth', 2);
+    end
 end
 
 
