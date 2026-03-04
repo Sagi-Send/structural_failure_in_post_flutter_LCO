@@ -4,6 +4,10 @@ close all;
 
 define_parallel_processing();
 
+%% Caching controls
+results_mat_file = 'flutter_analysis_cache.mat';
+force_resolve = false;
+
 %% Build structural model
 % Geometry and material parameters are defined inside this script.
 create_AiryStressPlateModel
@@ -16,13 +20,34 @@ params.h  = h;
 params.nu = nu;
 params.D  = D;
 
-%% Pressure sweep
-[w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
-    natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
-    vm_upper, vm_lower] = pressure_sweep( ...
-    params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
-    struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv, ...
-    NModes_w, struct_mat_L2, struct_mat_Awdot_not_scaled);
+%% Pressure sweep (or load cached results)
+[cache_loaded, lambda_F, plot_data] = FlutterAnalysisCache.try_load( ...
+    results_mat_file, params, force_resolve);
+
+if ~cache_loaded
+    [w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
+        natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
+        vm_upper, vm_lower] = pressure_sweep( ...
+        params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
+        struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv, ...
+        NModes_w, struct_mat_L2, struct_mat_Awdot_not_scaled);
+
+    solve_data = struct( ...
+        'w_center', w_center, ...
+        'w_i', w_i, ...
+        'lambda_F', lambda_F, ...
+        'lco_amp', lco_amp, ...
+        'flutter_onset_idx', flutter_onset_idx, ...
+        'natural_frequencies_hz_array', natural_frequencies_hz_array, ...
+        'damping_array', damping_array, ...
+        'unstable', unstable, ...
+        'max_real_eig', max_real_eig, ...
+        'vm_upper', vm_upper, ...
+        'vm_lower', vm_lower);
+
+    plot_data = FlutterAnalysisCache.save_with_plot_data( ...
+        results_mat_file, params, solve_data);
+end
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -30,10 +55,7 @@ else
     fprintf('No flutter detected in the scanned range.\n');
 end
 
-reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array);
-
-plot_output(params, w_center, lco_amp, lambda_F,...
-    flutter_onset_idx, h, reduced_freq_array, damping_array, vm_upper, vm_lower);
+plot_output(params, plot_data);
 
 % vm_upper / vm_lower are available for post-processing
 % e.g., max over time and surfaces:
@@ -142,7 +164,7 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
         lco_amps(idx) = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
 
         % VM stresses on upper/lower surfaces at all points and all times
-        [vmU_local, vmL_local] = compute_vm_surfaces( ...
+        [vmU_local, vmL_local] = von_mises( ...
             Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
             struct_mat_B2, h, nu, D);
 
@@ -166,75 +188,6 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
     else
         lambda_F = lambda(first_unstable_idx);
     end
-end
-
-
-function [vm_upper, vm_lower] = compute_vm_surfaces( ...
-    Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
-    struct_mat_B2, h, nu, D)
-
-    % Q: [Nt x N]
-    [Nt, N] = size(Q);
-    nPts = numel(x_points);
-
-    % basis second-derivative matrices at points (N x nPts)
-    Psi_xx = zeros(N, nPts);
-    Psi_yy = zeros(N, nPts);
-    Psi_xy = zeros(N, nPts);
-    for n = 1:N
-        Psi_xx(n,:) = psi_w_xx{n}(x_points, y_points);
-        Psi_yy(n,:) = psi_w_yy{n}(x_points, y_points);
-        Psi_xy(n,:) = psi_w_xy{n}(x_points, y_points);
-    end
-
-    % curvatures at points over time (nPts x Nt)
-    w_xx = (Q * Psi_xx).';
-    w_yy = (Q * Psi_yy).';
-    w_xy = (Q * Psi_xy).';
-
-    % bending moments (nPts x Nt)
-    Mxx = -D * (w_xx + nu * w_yy);
-    Myy = -D * (w_yy + nu * w_xx);
-    Mxy = -D * (1 - nu) * w_xy;
-
-    % Airy coefficients c(t): F(x,y,t) = sum c_n(t) psi_n(x,y)
-    % c = (A^{-1}B) : (q ⊗ q) = struct_mat_B2(q,q)
-    Ccoef = zeros(Nt, N);
-    for it = 1:Nt
-        q = Q(it,:).';                              % [N x 1]
-        tmp = tensorprod(struct_mat_B2, q, 3, 1);    % -> [N x N]
-        c   = tensorprod(tmp, q, 2, 1);              % -> [N x 1]
-        Ccoef(it,:) = c.';
-    end
-
-    % Airy second derivatives at points over time (nPts x Nt)
-    F_xx = (Ccoef * Psi_xx).';
-    F_yy = (Ccoef * Psi_yy).';
-    F_xy = (Ccoef * Psi_xy).';
-
-    % stress resultants from Airy
-    Nxx = F_yy;
-    Nyy = F_xx;
-    Nxy = -F_xy;
-
-    % membrane stresses
-    sxx_m = Nxx / h;
-    syy_m = Nyy / h;
-    sxy_m = Nxy / h;
-
-    % bending stresses at z = ±h/2
-    coef = 6 / h^2;   % (12z/h^3) with z=±h/2
-    sxx_b = coef * Mxx;
-    syy_b = coef * Myy;
-    sxy_b = coef * Mxy;
-
-    % upper (+h/2) and lower (-h/2)
-    sxxU = sxx_m + sxx_b;   syyU = syy_m + syy_b;   sxyU = sxy_m + sxy_b;
-    sxxL = sxx_m - sxx_b;   syyL = syy_m - syy_b;   sxyL = sxy_m - sxy_b;
-
-    % von Mises (plane stress)
-    vm_upper = sqrt(sxxU.^2 - sxxU.*syyU + syyU.^2 + 3*sxyU.^2);
-    vm_lower = sqrt(sxxL.^2 - sxxL.*syyL + syyL.^2 + 3*sxyL.^2);
 end
 
 
@@ -282,15 +235,23 @@ function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
 end
 
 
-function plot_output...
-    (params, w_center, A_LCO, lambda_F, flutter_onset_idx, h,...
-    reduced_freq_array, damping_array, vm_upper, vm_lower)
+function plot_output(params, plot_data)
 
-    lambda = params.lambda;
-    t_eval = params.t_eval;
-    pinf   = params.pinf_sweep;
-    a      = params.a;
-    b      = params.b;
+    lambda = plot_data.lambda;
+    t_eval = plot_data.t_eval;
+    pinf   = plot_data.pinf;
+    a      = plot_data.a;
+    b      = plot_data.b;
+    h      = plot_data.h;
+    w_center      = plot_data.w_center;
+    A_LCO         = plot_data.A_LCO;
+    lambda_F      = plot_data.lambda_F;
+    flutter_onset_idx = plot_data.flutter_idx;
+    reduced_freq_array = plot_data.reduced_freq_array;
+    damping_array = plot_data.damping_array;
+    vm_max_p      = plot_data.vm_max_p;
+    x_max         = plot_data.x_max_vm;
+    y_max         = plot_data.y_max_vm;
 
     figure;
     tiledlayout(2,3,'TileSpacing','compact','Padding','compact');
@@ -334,11 +295,6 @@ function plot_output...
     ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
 
     % ---------------- max VM vs p_inf ----------------
-    % max over surfaces, then time, then points (for each pressure)
-    vm_surf     = max(cat(4, vm_upper, vm_lower), [], 4);   % [nP x nPts x Nt]
-    vm_pt_time  = squeeze(max(vm_surf, [], 3));             % [nP x nPts]
-    [vm_max_p, idx_pt] = max(vm_pt_time, [], 2);            % [nP x 1], [nP x 1]
-
     nexttile; hold on; grid off;
     plot(pinf, vm_max_p, '-o', 'LineWidth', 1.5);
     set(gca,'FontSize',18);
@@ -353,16 +309,6 @@ function plot_output...
     end
 
     % ---------------- location of max VM on the panel ----------------
-    % reconstruct the same stress grid used in pressure_sweep
-    x_lin = linspace(0, a, params.disc_stress);
-    y_lin = linspace(-b/2, b/2, params.disc_stress);
-    [Xg, Yg] = meshgrid(x_lin, y_lin);
-    x_points = reshape(Xg, 1, []);
-    y_points = reshape(Yg, 1, []);
-
-    x_max = x_points(idx_pt);
-    y_max = y_points(idx_pt);
-
     nexttile; hold on; grid on;
     scatter(x_max, y_max, 60, pinf, 'filled');  % color by pressure
     cb = colorbar; cb.Label.String = 'p_\infty [Pa]';
@@ -378,21 +324,6 @@ function plot_output...
         plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
             'MarkerSize', 14, 'LineWidth', 2);
     end
-end
-
-
-function reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array)
-    a     = params.a;
-    gamma = params.gamma;
-    T0    = params.T0;
-    Minf  = params.Minf;
-
-    Rgas = 287;                 % [J/(kg*K)]
-    a_inf = sqrt(gamma * Rgas * T0);
-    Uinf = Minf * a_inf;
-    Lref = a;
-
-    reduced_freq_array = (2 * pi * natural_frequencies_hz_array) * (Lref / Uinf);
 end
 
 
