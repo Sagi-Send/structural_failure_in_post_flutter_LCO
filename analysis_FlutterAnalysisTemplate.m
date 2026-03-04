@@ -12,20 +12,11 @@ create_AiryStressPlateModel
 params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
 
 %% Pressure sweep
-[w_center, lambda_F, lco_amp, flutter_onset_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
-    psi_w, ...
-    params.pinf_sweep, ...
-    params.lambda, ...
-    params.gamma, ...
-    params.Minf, ...
-    struct_mat_K, ...
-    struct_mat_Aw_not_scaled, ...
-    struct_mat_Minv, ...
-    NModes_w, ...
-    params.tol, ...
-    params.t_eval, ...
-    params.q_qdot_ics, ...
-    struct_mat_L2, a, struct_mat_Awdot_not_scaled, params.T0);
+[w_center, lambda_F, lco_amp, flutter_onset_idx,...
+    natural_frequencies_hz_array, damping_array, unstable, max_real_eig]...
+    = pressure_sweep(...
+    params, psi_w, struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv,...
+    NModes_w, struct_mat_L2, a, struct_mat_Awdot_not_scaled);
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -34,15 +25,17 @@ else
 end
 
 reduced_freq_array = nondimentionalize( ...
-    params.gamma, params.T0, params.Minf, a, natural_frequencies_hz_array);
+    params, a, natural_frequencies_hz_array);
 
-plot_output(w_center, params.lambda, lco_amp, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, params.t_eval);
+plot_output(params, w_center, lco_amp, lambda_F,...
+    flutter_onset_idx, h, reduced_freq_array, damping_array);
 
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.T_max_nonlinear_solution = 9;
     params.Nt = 900;                    % A Nt/T=100 ratio looks best.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
+    
     q0 = zeros(NModes_w,1);
     q0(1) = 1e-6;                       % tiny displacement perturbation
     params.q_qdot_ics = [q0; zeros(NModes_w,1)];
@@ -50,8 +43,9 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc = 50;
-    params.pinf_sweep = linspace(0, 75e3, params.disc); % [Pa]
+    params.disc_space    = 10; 
+    params.disc_pressure = 50;
+    params.pinf_sweep = linspace(0, 75e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
     params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
@@ -61,41 +55,54 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
 end
 
 
-function [w_center, lambda_F, lco_amps, first_unstable_idx, natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = pressure_sweep( ...
-    psi_w, pinf_sweep, lambda, gamma, Minf, struct_mat_K, struct_mat_Aw_not_scaled, ...
-    struct_mat_Minv, NModes_w, tol, t_eval, q_qdot_ics, struct_mat_L2, a, struct_mat_Awdot_not_scaled, T0)
+function [w_center, lambda_F, lco_amps, first_unstable_idx,...
+    natural_frequencies_hz_array, damping_array, unstable, max_real_eig]...
+    = pressure_sweep(params, psi_w, struct_mat_K,...
+    struct_mat_Aw_not_scaled, struct_mat_Minv, NModes_w,...
+    struct_mat_L2, a, struct_mat_Awdot_not_scaled)
+
+    pinf_sweep = params.pinf_sweep;
+    lambda = params.lambda;
+    gamma = params.gamma;
+    Minf = params.Minf;
+    tol = params.tol;
+    t_eval = params.t_eval;
+    q_qdot_ics = params.q_qdot_ics;
+    T0 = params.T0;
 
     n_pressures = numel(pinf_sweep);
 
     % Preallocation
-    Nt = numel(t_eval);
-    w_center = zeros(n_pressures, Nt);
-    natural_frequencies_hz_array = zeros(NModes_w, n_pressures);
-    damping_array = zeros(NModes_w, n_pressures);
-    max_real_eig = zeros(1, n_pressures);
-    unstable = false(1, n_pressures);
-    lco_amps = zeros(1, n_pressures);
+    Nt                              = numel(t_eval);
+    w_center                        = zeros(n_pressures, Nt);
+    natural_frequencies_hz_array    = zeros(NModes_w, n_pressures);
+    damping_array                   = zeros(NModes_w, n_pressures);
+    max_real_eig                    = zeros(1, n_pressures);
+    unstable = false(1, n_pressures);   lco_amps = zeros(1, n_pressures);
+
     parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
-        [struct_mat_Aw, struct_mat_Awdot] = ...
-            aerodynamic_stiffness_damping(struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, pinf_i, gamma, Minf, T0);
+        [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping...
+            (struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled,...
+            pinf_i, gamma, Minf, T0);
 
         rhs_local = @(t, y) rhs_func_aero( ...
-            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, struct_mat_Aw, struct_mat_Awdot);
+            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2,...
+            struct_mat_Aw, struct_mat_Awdot);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
 
         % maximum deflection in time for each pressue value
         x_c = a/2;
         y_c = 0;
-        
         w_center_local = zeros(1, Nt);
         
         for it = 1:Nt
             w_center_local(it) = modal2physical( ...
                 w_modal(it, 1:NModes_w), x_c, y_c, psi_w);
         end
+
         w_center(idx,:) = w_center_local;
         lco_amp = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
         lco_amps(idx) = lco_amp;
@@ -162,8 +169,11 @@ end
 
 
 
-function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
-    figure;
+function plot_output(params, w_center, A_LCO, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array)
+    lambda = params.lambda;
+    t_eval = params.t_eval;    
+
+figure;
     tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
     
     % ---------------- w_center(t)/h for selected lambdas ----------------
@@ -228,7 +238,11 @@ function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, re
 end
 
 
-function reduced_freq_array = nondimentionalize(gamma, T0, Minf, a, natural_frequencies_hz_array)
+function reduced_freq_array = nondimentionalize(params, a, natural_frequencies_hz_array)
+    gamma   = params.gamma;
+    T0      = params.T0;
+    Minf    = params.Minf;    
+
     Rgas = 287;                 % [J/(kg*K)]
     a_inf = sqrt(gamma * Rgas * T0);
     Uinf = Minf * a_inf;
