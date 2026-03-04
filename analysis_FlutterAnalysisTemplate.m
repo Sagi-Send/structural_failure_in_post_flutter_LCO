@@ -9,14 +9,14 @@ define_parallel_processing();
 create_AiryStressPlateModel
 
 %% Analysis setup
-params = build_analysis_params(NModes_w, xMesh, yMesh, a, D);
+params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D);
 
 %% Pressure sweep
-[w_center, lambda_F, lco_amp, flutter_onset_idx,...
+[w_center, w_i, lambda_F, lco_amp, flutter_onset_idx,...
     natural_frequencies_hz_array, damping_array, unstable, max_real_eig]...
     = pressure_sweep(...
     params, psi_w, struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv,...
-    NModes_w, struct_mat_L2, a, struct_mat_Awdot_not_scaled);
+    NModes_w, struct_mat_L2, struct_mat_Awdot_not_scaled);
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -25,13 +25,14 @@ else
 end
 
 reduced_freq_array = nondimentionalize( ...
-    params, a, natural_frequencies_hz_array);
+    params, natural_frequencies_hz_array);
 
 plot_output(params, w_center, lco_amp, lambda_F,...
     flutter_onset_idx, h, reduced_freq_array, damping_array);
 
 
-function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
+function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
+    params.a = a;   params.b = b;
     params.T_max_nonlinear_solution = 9;
     params.Nt = 900;                    % A Nt/T=100 ratio looks best.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
@@ -43,8 +44,8 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc_space    = 10; 
-    params.disc_pressure = 50;
+    params.disc_stress      = 10;
+    params.disc_pressure    = 50;
     params.pinf_sweep = linspace(0, 75e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
@@ -55,63 +56,74 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, D)
 end
 
 
-function [w_center, lambda_F, lco_amps, first_unstable_idx,...
-    natural_frequencies_hz_array, damping_array, unstable, max_real_eig]...
-    = pressure_sweep(params, psi_w, struct_mat_K,...
-    struct_mat_Aw_not_scaled, struct_mat_Minv, NModes_w,...
-    struct_mat_L2, a, struct_mat_Awdot_not_scaled)
+function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
+    natural_frequencies_hz_array, damping_array, unstable, max_real_eig] = ...
+    pressure_sweep(params, psi_w, struct_mat_K, ...
+    struct_mat_Aw_not_scaled, struct_mat_Minv, NModes_w, ...
+    struct_mat_L2, struct_mat_Awdot_not_scaled)
 
+    a          = params.a;  b = params.b;
     pinf_sweep = params.pinf_sweep;
-    lambda = params.lambda;
-    gamma = params.gamma;
-    Minf = params.Minf;
-    tol = params.tol;
-    t_eval = params.t_eval;
+    lambda     = params.lambda;
+    gamma      = params.gamma;
+    Minf       = params.Minf;
+    tol        = params.tol;
+    t_eval     = params.t_eval;
     q_qdot_ics = params.q_qdot_ics;
-    T0 = params.T0;
+    T0         = params.T0;
+    x_points   = linspace(0, a, params.disc_stress);
+    y_points   = linspace(-b/2, b/2, params.disc_stress);
 
     n_pressures = numel(pinf_sweep);
+    Nt          = numel(t_eval);
+    nPts        = numel(x_points);
 
     % Preallocation
-    Nt                              = numel(t_eval);
-    w_center                        = zeros(n_pressures, Nt);
-    natural_frequencies_hz_array    = zeros(NModes_w, n_pressures);
-    damping_array                   = zeros(NModes_w, n_pressures);
-    max_real_eig                    = zeros(1, n_pressures);
-    unstable = false(1, n_pressures);   lco_amps = zeros(1, n_pressures);
+    w_center                     = zeros(n_pressures, Nt);
+    w_i                          = zeros(n_pressures, nPts, Nt);
+    natural_frequencies_hz_array = zeros(NModes_w, n_pressures);
+    damping_array                = zeros(NModes_w, n_pressures);
+    max_real_eig                 = zeros(1, n_pressures);
+    unstable                     = false(1, n_pressures);
+    lco_amps                     = zeros(1, n_pressures);
+
+    % Find center point index
+    [~, i_center] = min((x_points - a/2).^2 + (y_points - 0).^2);
 
     parfor idx = 1:n_pressures
         pinf_i = pinf_sweep(idx);
 
-        [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping...
-            (struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled,...
+        [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping( ...
+            struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, ...
             pinf_i, gamma, Minf, T0);
 
         rhs_local = @(t, y) rhs_func_aero( ...
-            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2,...
+            t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, ...
             struct_mat_Aw, struct_mat_Awdot);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
 
-        % maximum deflection in time for each pressue value
-        x_c = a/2;
-        y_c = 0;
-        w_center_local = zeros(1, Nt);
-        
+        % deflection at all points for this pressure
+        w_i_local = zeros(nPts, Nt);
         for it = 1:Nt
-            w_center_local(it) = modal2physical( ...
-                w_modal(it, 1:NModes_w), x_c, y_c, psi_w);
+            w_i_local(:, it) = modal2physical( ...
+                w_modal(it, 1:NModes_w), x_points, y_points, psi_w).';
         end
 
-        w_center(idx,:) = w_center_local;
-        lco_amp = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
-        lco_amps(idx) = lco_amp;
+        % store full-field + center trace
+        w_i(idx,:,:)      = reshape(w_i_local, [1, nPts, Nt]);
+        w_center_local    = w_i_local(i_center, :);
+        w_center(idx,:)   = w_center_local;
+
+        lco_amps(idx) = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
 
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
-        struct_mat_C = struct_mat_Awdot;
+        struct_mat_C       = struct_mat_Awdot;
 
-        [natural_frequencies_hz_array(:, idx), damping_array(:, idx), max_real_eig(idx), omega_scale] = ...
-            solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, struct_mat_C, NModes_w);
+        [natural_frequencies_hz_array(:, idx), damping_array(:, idx), ...
+            max_real_eig(idx), omega_scale] = ...
+            solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, ...
+                                      struct_mat_C, NModes_w);
 
         unstable(idx) = max_real_eig(idx) > (omega_scale * tol);
     end
@@ -125,7 +137,8 @@ function [w_center, lambda_F, lco_amps, first_unstable_idx,...
 end
 
 
-function [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping(struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, pinf_i, gamma, Minf, T0)
+function [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping...
+    (struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, pinf_i, gamma, Minf, T0)
     coeff_Aw = gamma * pinf_i * Minf;
     struct_mat_Aw = coeff_Aw * struct_mat_Aw_not_scaled;
 
@@ -169,11 +182,13 @@ end
 
 
 
-function plot_output(params, w_center, A_LCO, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array)
+function plot_output...
+    (params, w_center, A_LCO, lambda_F, flutter_onset_idx, h,...
+    reduced_freq_array, damping_array)
     lambda = params.lambda;
     t_eval = params.t_eval;    
 
-figure;
+    figure;
     tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
     
     % ---------------- w_center(t)/h for selected lambdas ----------------
@@ -238,7 +253,8 @@ figure;
 end
 
 
-function reduced_freq_array = nondimentionalize(params, a, natural_frequencies_hz_array)
+function reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array)
+    a       = params.a;
     gamma   = params.gamma;
     T0      = params.T0;
     Minf    = params.Minf;    
