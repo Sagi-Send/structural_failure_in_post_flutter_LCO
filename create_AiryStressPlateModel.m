@@ -46,7 +46,7 @@ for n = 1:1:NModes_w
     my = modeOrder_w(n,2);
 
     X = sin( pi* mx * x / a )             ;
-    Y = sin( pi* my * ( y + b / 2 ) / b ) ;  % shifted to center
+    Y = sin( pi* my * (y + b / 2 ) / b ) ;  % shifted to center
 
     psi_w_sym(n) = X*Y;
 end
