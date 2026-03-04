@@ -4,6 +4,10 @@ close all;
 
 define_parallel_processing();
 
+%% Caching controls
+results_mat_file = 'flutter_analysis_cache.mat';
+force_resolve = false;
+
 %% Build structural model
 % Geometry and material parameters are defined inside this script.
 create_AiryStressPlateModel
@@ -16,13 +20,34 @@ params.h  = h;
 params.nu = nu;
 params.D  = D;
 
-%% Pressure sweep
-[w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
-    natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
-    vm_upper, vm_lower] = pressure_sweep( ...
-    params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
-    struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv, ...
-    NModes_w, struct_mat_L2, struct_mat_Awdot_not_scaled);
+%% Pressure sweep (or load cached results)
+[cache_loaded, lambda_F, plot_data] = FlutterAnalysisCache.try_load( ...
+    results_mat_file, params, force_resolve);
+
+if ~cache_loaded
+    [w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
+        natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
+        vm_upper, vm_lower] = pressure_sweep( ...
+        params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
+        struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv, ...
+        NModes_w, struct_mat_L2, struct_mat_Awdot_not_scaled);
+
+    solve_data = struct( ...
+        'w_center', w_center, ...
+        'w_i', w_i, ...
+        'lambda_F', lambda_F, ...
+        'lco_amp', lco_amp, ...
+        'flutter_onset_idx', flutter_onset_idx, ...
+        'natural_frequencies_hz_array', natural_frequencies_hz_array, ...
+        'damping_array', damping_array, ...
+        'unstable', unstable, ...
+        'max_real_eig', max_real_eig, ...
+        'vm_upper', vm_upper, ...
+        'vm_lower', vm_lower);
+
+    plot_data = FlutterAnalysisCache.save_with_plot_data( ...
+        results_mat_file, params, solve_data);
+end
 
 if ~isnan(lambda_F)
     fprintf('Flutter onset at lambda = %.3g\n', lambda_F);
@@ -30,10 +55,7 @@ else
     fprintf('No flutter detected in the scanned range.\n');
 end
 
-reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array);
-
-plot_output(params, w_center, lco_amp, lambda_F,...
-    flutter_onset_idx, h, reduced_freq_array, damping_array, vm_upper, vm_lower);
+plot_output(params, plot_data);
 
 % vm_upper / vm_lower are available for post-processing
 % e.g., max over time and surfaces:
@@ -282,15 +304,23 @@ function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
 end
 
 
-function plot_output...
-    (params, w_center, A_LCO, lambda_F, flutter_onset_idx, h,...
-    reduced_freq_array, damping_array, vm_upper, vm_lower)
+function plot_output(params, plot_data)
 
-    lambda = params.lambda;
-    t_eval = params.t_eval;
-    pinf   = params.pinf_sweep;
-    a      = params.a;
-    b      = params.b;
+    lambda = plot_data.lambda;
+    t_eval = plot_data.t_eval;
+    pinf   = plot_data.pinf;
+    a      = plot_data.a;
+    b      = plot_data.b;
+    h      = plot_data.h;
+    w_center      = plot_data.w_center;
+    A_LCO         = plot_data.A_LCO;
+    lambda_F      = plot_data.lambda_F;
+    flutter_onset_idx = plot_data.flutter_idx;
+    reduced_freq_array = plot_data.reduced_freq_array;
+    damping_array = plot_data.damping_array;
+    vm_max_p      = plot_data.vm_max_p;
+    x_max         = plot_data.x_max_vm;
+    y_max         = plot_data.y_max_vm;
 
     figure;
     tiledlayout(2,3,'TileSpacing','compact','Padding','compact');
@@ -334,11 +364,6 @@ function plot_output...
     ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
 
     % ---------------- max VM vs p_inf ----------------
-    % max over surfaces, then time, then points (for each pressure)
-    vm_surf     = max(cat(4, vm_upper, vm_lower), [], 4);   % [nP x nPts x Nt]
-    vm_pt_time  = squeeze(max(vm_surf, [], 3));             % [nP x nPts]
-    [vm_max_p, idx_pt] = max(vm_pt_time, [], 2);            % [nP x 1], [nP x 1]
-
     nexttile; hold on; grid off;
     plot(pinf, vm_max_p, '-o', 'LineWidth', 1.5);
     set(gca,'FontSize',18);
@@ -353,16 +378,6 @@ function plot_output...
     end
 
     % ---------------- location of max VM on the panel ----------------
-    % reconstruct the same stress grid used in pressure_sweep
-    x_lin = linspace(0, a, params.disc_stress);
-    y_lin = linspace(-b/2, b/2, params.disc_stress);
-    [Xg, Yg] = meshgrid(x_lin, y_lin);
-    x_points = reshape(Xg, 1, []);
-    y_points = reshape(Yg, 1, []);
-
-    x_max = x_points(idx_pt);
-    y_max = y_points(idx_pt);
-
     nexttile; hold on; grid on;
     scatter(x_max, y_max, 60, pinf, 'filled');  % color by pressure
     cb = colorbar; cb.Label.String = 'p_\infty [Pa]';
@@ -378,21 +393,6 @@ function plot_output...
         plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
             'MarkerSize', 14, 'LineWidth', 2);
     end
-end
-
-
-function reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array)
-    a     = params.a;
-    gamma = params.gamma;
-    T0    = params.T0;
-    Minf  = params.Minf;
-
-    Rgas = 287;                 % [J/(kg*K)]
-    a_inf = sqrt(gamma * Rgas * T0);
-    Uinf = Minf * a_inf;
-    Lref = a;
-
-    reduced_freq_array = (2 * pi * natural_frequencies_hz_array) * (Lref / Uinf);
 end
 
 
