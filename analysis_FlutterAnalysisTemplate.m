@@ -90,6 +90,9 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     
     sf = 2; sigma_y = 450*10^6;
     params.sf_rel = sigma_y/sf;
+
+    params.trans_frac   = 0.015;
+    params.steady_frac  = 0.2;
 end
 
 
@@ -113,6 +116,8 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
     t_eval     = params.t_eval;
     q_qdot_ics = params.q_qdot_ics;
     T0         = params.T0;
+    steady_frac = params.steady_frac;
+    trans_frac = params.trans_frac;
 
     % Stress evaluation grid (disc_stress x disc_stress)
     x_lin = linspace(0, a, params.disc_stress);
@@ -167,8 +172,8 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, 0.15]);
-        amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [0.8, 1.0]);
+        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, trans_frac]);
+        amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [1-steady_frac, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
         [vmU_local, vmL_local] = von_mises( ...
@@ -266,9 +271,9 @@ function plot_output(params, plot_data)
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    selected_idx = [round(numel(lambda)/3), round(2*numel(lambda)/3), numel(lambda)];
+    selected_idx = [round(numel(lambda)/4), round(numel(lambda)/2), round(0.85*numel(lambda)),numel(lambda)];
     for k = 1:numel(selected_idx)
         idx = selected_idx(k);
         nexttile; hold on; grid off;
@@ -292,7 +297,7 @@ function plot_output(params, plot_data)
     set(gca,'FontSize',style.axesFontSize);
     xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$(w_{center}/h)_{amp}^{transient}$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$(w_{center}/h)_{amp}^{trans.}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
     % ---------------- max transient VM vs lambda ----------------
@@ -300,7 +305,7 @@ function plot_output(params, plot_data)
     plot(lambda, stress_cr_transient, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\sigma_{cr}^{transient}$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\sigma_{cr}^{trans,}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
     sgtitle('Transient window (first 20% of time marching)', ...

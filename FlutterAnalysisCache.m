@@ -63,10 +63,13 @@ classdef FlutterAnalysisCache
             plot_data.b = params.b;
             plot_data.h = params.h;
 
+            steady_frac = params.steady_frac;
+            trans_frac = params.trans_frac;
+
             plot_data.w_center = solve_data.w_center;
             Nt = numel(params.t_eval);
-            idx_transient = FlutterAnalysisCache.select_time_window_indices(Nt, 0.0, 0.15);
-            idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 0.8, 1.0);
+            idx_transient = FlutterAnalysisCache.select_time_window_indices(Nt, 0.0, trans_frac);
+            idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 1-steady_frac, 1.0);
 
             if isfield(solve_data, 'amp_transient') && ~isempty(solve_data.amp_transient)
                 plot_data.A_transient = solve_data.amp_transient;
