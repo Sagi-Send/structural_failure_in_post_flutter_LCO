@@ -14,13 +14,18 @@ function w_phys = modal2physical(q, x_point, y_point, psi_w)
     %       of modal displacement q to time series of physical displacement
     %       and return w_phys of dimension [T x num_of_xy_points]
 
-    % we obtain the the deformation in physical coordinates in two steps
-    % 1) get the physical deformation on the mesh grid for each mode
-    num_of_xy_points = length(x_point);
-    psi_w_at_xy = zeros(length(psi_w), num_of_xy_points);
-    for n = 1:length(psi_w)
-        % psi_w_at_xy is [NModes_w x num_of_xy_points]
-        psi_w_at_xy(n,:) = psi_w{n}(x_point, y_point);
+    if nargin == 2
+        % Fast path: x_point is already the precomputed shape matrix
+        psi_w_at_xy = x_point;
+    else
+        % we obtain the the deformation in physical coordinates in two steps
+        % 1) get the physical deformation on the mesh grid for each mode
+        num_of_xy_points = length(x_point);
+        psi_w_at_xy = zeros(length(psi_w), num_of_xy_points);
+        for n = 1:length(psi_w)
+            % psi_w_at_xy is [NModes_w x num_of_xy_points]
+            psi_w_at_xy(n,:) = psi_w{n}(x_point, y_point);
+        end
     end
 
     % and step 2) multiply by modal coordinates
