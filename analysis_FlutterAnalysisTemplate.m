@@ -25,7 +25,7 @@ params.D  = D;
     results_mat_file, params, force_resolve);
 
 if ~cache_loaded
-    [w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
+    [w_center, w_i, lambda_F, amp_transient, amp_steady, flutter_onset_idx, ...
         natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
         vm_upper, vm_lower] = pressure_sweep( ...
         params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -36,7 +36,8 @@ if ~cache_loaded
         'w_center', w_center, ...
         'w_i', w_i, ...
         'lambda_F', lambda_F, ...
-        'lco_amp', lco_amp, ...
+        'amp_transient', amp_transient, ...
+        'amp_steady', amp_steady, ...
         'flutter_onset_idx', flutter_onset_idx, ...
         'natural_frequencies_hz_array', natural_frequencies_hz_array, ...
         'damping_array', damping_array, ...
@@ -92,7 +93,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
 end
 
 
-function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
+function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx, ...
     natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
     vm_upper, vm_lower] = ...
     pressure_sweep(params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -134,7 +135,8 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
     damping_array                = zeros(NModes_w, n_pressures);
     max_real_eig                 = zeros(1, n_pressures);
     unstable                     = false(1, n_pressures);
-    lco_amps                     = zeros(1, n_pressures);
+    amp_transient                = zeros(1, n_pressures);
+    amp_steady                   = zeros(1, n_pressures);
 
     % Find center point index (nearest)
     [~, i_center] = min((x_points - a/2).^2 + (y_points - 0).^2);
@@ -165,7 +167,8 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        lco_amps(idx) = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
+        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, 0.2]);
+        amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [0.8, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
         [vmU_local, vmL_local] = von_mises( ...
@@ -227,15 +230,18 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
     damping = sigma ./ omega_rad_s;
 end
 
-% Estimate LCO amplitude from a scalar time series w(t).
-function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
-    if nargin < 3 || isempty(transientFrac), transientFrac = 0.33; end
+% Estimate displacement amplitude from a selected [startFrac, endFrac] window.
+function amp = estimate_window_amplitude(t, w, frac_window)
+    idx_window = select_time_window_indices(t, frac_window(1), frac_window(2));
+    w_window = w(idx_window);
+    amp = 0.5*(max(w_window) - min(w_window));
+end
 
+function idx_window = select_time_window_indices(t, startFrac, endFrac)
     Nt = numel(t);
-    i0 = max(1, floor(transientFrac*Nt) + 1); % index where steady window starts
-    w_ss = w(i0:end);
-
-    lco_amp = 0.5*(max(w_ss) - min(w_ss));
+    i_start = max(1, floor(startFrac*Nt) + 1);
+    i_end   = min(Nt, max(i_start, floor(endFrac*Nt)));
+    idx_window = i_start:i_end;
 end
 
 
@@ -250,16 +256,16 @@ function plot_output(params, plot_data)
     b      = plot_data.b;
     h      = plot_data.h;
     w_center      = plot_data.w_center;
-    A_LCO         = plot_data.A_LCO;
+    A_transient   = plot_data.A_transient;
+    A_steady      = plot_data.A_steady;
     lambda_F      = plot_data.lambda_F;
     flutter_onset_idx = plot_data.flutter_idx;
     reduced_freq_array = plot_data.reduced_freq_array;
     damping_array = plot_data.damping_array;
-    vm_max_p      = plot_data.vm_max_p;
-    x_max         = plot_data.x_max_vm;
-    y_max         = plot_data.y_max_vm;
-
-    stress_cr = vm_max_p / params.sf_rel;
+    vm_max_transient = plot_data.vm_max_transient;
+    vm_max_steady    = plot_data.vm_max_steady;
+    stress_cr_transient = vm_max_transient / params.sf_rel;
+    stress_cr_steady    = vm_max_steady / params.sf_rel;
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
@@ -272,7 +278,7 @@ function plot_output(params, plot_data)
         plot(t_eval, w_center(idx,:)/h, 'LineWidth', style.lineWidth);
         set(gca,'FontSize',style.axesFontSize);
         xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
-        ylabel('$w_{center}^{steady}/h$','Interpreter','latex','FontSize',style.labelFontSize);
+        ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
         title(sprintf('$\\lambda = %.1f$', lambda(idx)), ...
             'Interpreter','latex', 'FontSize', style.titleFontSize);
         xlim([0, 0.115*t_eval(end)]);
@@ -280,7 +286,7 @@ function plot_output(params, plot_data)
     end
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
@@ -291,29 +297,68 @@ function plot_output(params, plot_data)
     ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
-    % ---------------- lambda vs LCO amp ----------------
+    % ---------------- lambda vs transient amp ----------------
     nexttile; hold on; grid off;
 
-    plot(lambda, A_LCO/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    plot(lambda, A_transient/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
     set(gca,'FontSize',style.axesFontSize);
     xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$(w_{center}/h)_{amp}^{transient}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
-    % ---------------- max VM vs p_inf ----------------
+    % ---------------- max transient VM vs lambda ----------------
     nexttile; hold on; grid off;
-    plot(lambda, stress_cr, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    plot(lambda, stress_cr_transient, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\sigma_{cr}$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\sigma_{cr}^{transient}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
-    % ---------------- location of max VM on the panel ----------------
+    sgtitle('Transient window (first 20% of time marching)', ...
+        'FontSize', style.titleFontSize, 'FontWeight', 'normal');
+
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+
+    % ---------------- damping vs lambda ----------------
+    nexttile; hold on; grid off;
+
+    scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+
+    % ---------------- lambda vs steady amp ----------------
+    nexttile; hold on; grid off;
+
+    plot(lambda, A_steady/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    set(gca,'FontSize',style.axesFontSize);
+    xlim([0, max(lambda)]);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$(w_{center}/h)_{amp}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+
+    % ---------------- max steady VM vs lambda ----------------
+    nexttile; hold on; grid off;
+    plot(lambda, stress_cr_steady, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\sigma_{cr}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+
+    sgtitle('Steady window (last 20% of time marching)', ...
+        'FontSize', style.titleFontSize, 'FontWeight', 'normal');
+
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+
+    % ---------------- location of transient max VM on the panel ----------------
     nexttile; hold on; grid on;
     
-    xN = x_max./a;          % x normalized by panel length a
-    yN = y_max./b;          % y normalized by panel width  b
+    xN = plot_data.x_max_vm_transient./a;          % x normalized by panel length a
+    yN = plot_data.y_max_vm_transient./b;          % y normalized by panel width  b
     
     scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');  % color by pressure
     
@@ -326,14 +371,34 @@ function plot_output(params, plot_data)
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-    
+    title('Transient stress hotspot','FontSize',style.titleFontSize);
+
     xlim([0, 1]);
     ylim([-0.5, 0.5]);
     axis square
 
-    % highlight flutter-onset location if available
-    % plot(x_max(flutter_onset_idx)/a, y_max(flutter_onset_idx)/b, 'kp', ...
-    %     'MarkerSize', style.flutterMarkerSize, 'LineWidth', style.highlightLineWidth);
+    % ---------------- location of steady max VM on the panel ----------------
+    nexttile; hold on; grid on;
+
+    xN = plot_data.x_max_vm_steady./a;
+    yN = plot_data.y_max_vm_steady./b;
+
+    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+
+    cb = colorbar; cb.Label.String = '$\lambda$';
+    cb.Label.Interpreter = 'latex';
+    cb.TickLabelInterpreter = 'latex';
+    cb.Label.FontSize = style.labelFontSize;
+    cb.FontSize = style.axesFontSize;
+
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    title('Steady stress hotspot','FontSize',style.titleFontSize);
+    
+    xlim([0, 1]);
+    ylim([-0.5, 0.5]);
+    axis square
 end
 
 

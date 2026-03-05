@@ -21,7 +21,7 @@ classdef FlutterAnalysisCache
                 plot_data = S_plot.plot_data;
             else
                 S = load(results_mat_file, ...
-                    'w_center', 'lco_amp', 'flutter_onset_idx', ...
+                    'w_center', 'lco_amp', 'amp_transient', 'amp_steady', 'flutter_onset_idx', ...
                     'damping_array', 'natural_frequencies_hz_array', ...
                     'vm_upper', 'vm_lower', 'lambda_F');
                 plot_data = FlutterAnalysisCache.extract_plot_data(params, S);
@@ -36,7 +36,9 @@ classdef FlutterAnalysisCache
             w_center = solve_data.w_center;
             w_i = solve_data.w_i;
             lambda_F = solve_data.lambda_F;
-            lco_amp = solve_data.lco_amp;
+            amp_transient = solve_data.amp_transient;
+            amp_steady = solve_data.amp_steady;
+            lco_amp = amp_steady; % backward compatibility in cache file
             flutter_onset_idx = solve_data.flutter_onset_idx;
             natural_frequencies_hz_array = solve_data.natural_frequencies_hz_array;
             damping_array = solve_data.damping_array;
@@ -47,6 +49,7 @@ classdef FlutterAnalysisCache
 
             save(results_mat_file, ...
                 'params', 'w_center', 'w_i', 'lambda_F', 'lco_amp', ...
+                'amp_transient', 'amp_steady', ...
                 'flutter_onset_idx', 'natural_frequencies_hz_array', ...
                 'damping_array', 'unstable', 'max_real_eig', ...
                 'vm_upper', 'vm_lower', 'plot_data', '-v7.3');
@@ -61,7 +64,26 @@ classdef FlutterAnalysisCache
             plot_data.h = params.h;
 
             plot_data.w_center = solve_data.w_center;
-            plot_data.A_LCO = solve_data.lco_amp;
+            Nt = numel(params.t_eval);
+            idx_transient = FlutterAnalysisCache.select_time_window_indices(Nt, 0.0, 0.2);
+            idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 0.8, 1.0);
+
+            if isfield(solve_data, 'amp_transient') && ~isempty(solve_data.amp_transient)
+                plot_data.A_transient = solve_data.amp_transient;
+            else
+                plot_data.A_transient = FlutterAnalysisCache.amplitude_from_window( ...
+                    solve_data.w_center, idx_transient);
+            end
+
+            if isfield(solve_data, 'amp_steady') && ~isempty(solve_data.amp_steady)
+                plot_data.A_steady = solve_data.amp_steady;
+            elseif isfield(solve_data, 'lco_amp') && ~isempty(solve_data.lco_amp)
+                plot_data.A_steady = solve_data.lco_amp;
+            else
+                plot_data.A_steady = FlutterAnalysisCache.amplitude_from_window( ...
+                    solve_data.w_center, idx_steady);
+            end
+
             plot_data.lambda_F = solve_data.lambda_F;
             plot_data.flutter_idx = solve_data.flutter_onset_idx;
             plot_data.damping_array = solve_data.damping_array;
@@ -69,8 +91,19 @@ classdef FlutterAnalysisCache
                 FlutterAnalysisCache.nondimentionalize(params, solve_data.natural_frequencies_hz_array);
 
             vm_surf = max(cat(4, solve_data.vm_upper, solve_data.vm_lower), [], 4);
-            vm_pt_time = squeeze(max(vm_surf, [], 3));
-            [plot_data.vm_max_p, idx_pt] = max(vm_pt_time, [], 2);
+
+            [plot_data.vm_max_transient, plot_data.x_max_vm_transient, ...
+                plot_data.y_max_vm_transient] = FlutterAnalysisCache.extract_vm_window_peak( ...
+                vm_surf, params, idx_transient);
+
+            [plot_data.vm_max_steady, plot_data.x_max_vm_steady, ...
+                plot_data.y_max_vm_steady] = FlutterAnalysisCache.extract_vm_window_peak( ...
+                vm_surf, params, idx_steady);
+        end
+
+        function [vm_max, x_max, y_max] = extract_vm_window_peak(vm_surf, params, idx_time)
+            vm_pt_time = squeeze(max(vm_surf(:, :, idx_time), [], 3));
+            [vm_max, idx_pt] = max(vm_pt_time, [], 2);
 
             x_lin = linspace(0, params.a, params.disc_stress);
             y_lin = linspace(-params.b/2, params.b/2, params.disc_stress);
@@ -78,8 +111,19 @@ classdef FlutterAnalysisCache
             x_points = reshape(Xg, 1, []);
             y_points = reshape(Yg, 1, []);
 
-            plot_data.x_max_vm = x_points(idx_pt);
-            plot_data.y_max_vm = y_points(idx_pt);
+            x_max = x_points(idx_pt);
+            y_max = y_points(idx_pt);
+        end
+
+        function amp = amplitude_from_window(w_center, idx_window)
+            w_win = w_center(:, idx_window);
+            amp = 0.5*(max(w_win, [], 2) - min(w_win, [], 2)).';
+        end
+
+        function idx_window = select_time_window_indices(Nt, startFrac, endFrac)
+            i_start = max(1, floor(startFrac*Nt) + 1);
+            i_end = min(Nt, max(i_start, floor(endFrac*Nt)));
+            idx_window = i_start:i_end;
         end
 
         function reduced_freq_array = nondimentionalize(params, natural_frequencies_hz_array)
