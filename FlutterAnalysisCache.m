@@ -9,12 +9,21 @@ classdef FlutterAnalysisCache
                 return;
             end
 
-            S = load(results_mat_file);
-            lambda_F = S.lambda_F;
+            vars_in_file = {whos('-file', results_mat_file).name};
 
-            if isfield(S, 'plot_data')
-                plot_data = S.plot_data;
+            if ismember('lambda_F', vars_in_file)
+                S_lambda = load(results_mat_file, 'lambda_F');
+                lambda_F = S_lambda.lambda_F;
+            end
+
+            if ismember('plot_data', vars_in_file)
+                S_plot = load(results_mat_file, 'plot_data');
+                plot_data = S_plot.plot_data;
             else
+                S = load(results_mat_file, ...
+                    'w_center', 'lco_amp', 'flutter_onset_idx', ...
+                    'damping_array', 'natural_frequencies_hz_array', ...
+                    'vm_upper', 'vm_lower', 'lambda_F');
                 plot_data = FlutterAnalysisCache.extract_plot_data(params, S);
             end
 
