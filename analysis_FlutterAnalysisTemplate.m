@@ -126,6 +126,12 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
     x_points = reshape(Xg, 1, []);
     y_points = reshape(Yg, 1, []);
 
+    % Precompute modal shape values once on the stress grid
+    Psi_w  = build_shape_matrix(psi_w,    x_points, y_points);
+    Psi_xx = build_shape_matrix(psi_w_xx, x_points, y_points);
+    Psi_yy = build_shape_matrix(psi_w_yy, x_points, y_points);
+    Psi_xy = build_shape_matrix(psi_w_xy, x_points, y_points);
+
     n_pressures = numel(pinf_sweep);
     Nt          = numel(t_eval);
     nPts        = numel(x_points);
@@ -160,12 +166,8 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
         Q = w_modal(:, 1:NModes_w); % [Nt x NModes_w]
 
-        % deflection at all points for this pressure
-        w_i_local = zeros(nPts, Nt);
-        for it = 1:Nt
-            w_i_local(:, it) = modal2physical( ...
-                Q(it, :), x_points, y_points, psi_w).';
-        end
+        % deflection at all points for this pressure (vectorized)
+        w_i_local = modal2physical(Q, Psi_w).';
 
         % store full-field + center trace
         w_i(idx,:,:)    = reshape(w_i_local, [1, nPts, Nt]);
@@ -177,8 +179,7 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
 
         % VM stresses on upper/lower surfaces at all points and all times
         [vmU_local, vmL_local] = von_mises( ...
-            Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
-            struct_mat_B2, h, nu, D);
+            Q, Psi_xx, Psi_yy, Psi_xy, struct_mat_B2, h, nu, D);
 
         vm_upper(idx,:,:) = reshape(vmU_local, [1, nPts, Nt]);
         vm_lower(idx,:,:) = reshape(vmL_local, [1, nPts, Nt]);
@@ -222,7 +223,15 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
          -struct_mat_Minv * struct_mat_K_total, -struct_mat_Minv * struct_mat_C];
 
     eigvals_all = eig(A);
-    max_real_eig = max(real(eigvals_all));
+
+    opts = struct('tol', 1e-10, 'maxit', 500, 'issym', false, 'isreal', false);
+    [~, D_right, flag_right] = eigs(A, 1, 'lr', opts);
+
+    if flag_right == 0 && all(isfinite(diag(D_right)))
+        max_real_eig = real(D_right(1,1));
+    else
+        max_real_eig = max(real(eigvals_all));
+    end
     omega_scale = max(1, max(abs(imag(eigvals_all))));
 
     positive_frequency_mask = imag(eigvals_all) > 0;
@@ -233,6 +242,15 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
 
     natural_frequencies_hz = omega_rad_s / (2 * pi);
     damping = sigma ./ omega_rad_s;
+end
+
+function Psi = build_shape_matrix(psi_cell, x_points, y_points)
+    N = numel(psi_cell);
+    nPts = numel(x_points);
+    Psi = zeros(N, nPts);
+    for n = 1:N
+        Psi(n,:) = psi_cell{n}(x_points, y_points);
+    end
 end
 
 % Estimate displacement amplitude from a selected [startFrac, endFrac] window.
