@@ -261,20 +261,25 @@ function plot_output(params, plot_data)
 
     stress_cr = vm_max_p / params.sf_rel;
 
+    % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(2,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    % ---------------- w_center(t)/h for selected lambdas ----------------
-    nexttile; hold on; grid off;
+    selected_idx = pick_lambda_indices(numel(lambda), flutter_onset_idx);
+    for k = 1:numel(selected_idx)
+        idx = selected_idx(k);
+        nexttile; hold on; grid off;
+        plot(t_eval, w_center(idx,:)/h, 'LineWidth', style.lineWidth);
+        set(gca,'FontSize',style.axesFontSize);
+        xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
+        ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
+        title(sprintf('$\lambda = %.1f$', lambda(idx)), 'Interpreter', 'latex', ...
+            'FontSize', style.titleFontSize);
+        xlim([0, 0.115*t_eval(end)]);
+    end
 
-    plot(t_eval, w_center(end,:)/h, 'LineWidth', style.lineWidth, ...
-    'DisplayName', sprintf('$\\lambda = %.1f$', lambda(end)));
-
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
-    legend('show','Interpreter','latex','Location','best', 'FontSize', style.legendFontSize);
-    xlim([0, 0.115*t_eval(end)]);
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
@@ -320,6 +325,30 @@ function plot_output(params, plot_data)
         'MarkerSize', style.flutterMarkerSize, 'LineWidth', style.highlightLineWidth);
 end
 
+
+
+
+function selected_idx = pick_lambda_indices(n_lambda, flutter_onset_idx)
+    if n_lambda <= 3
+        selected_idx = 1:n_lambda;
+        return;
+    end
+
+    if ~isempty(flutter_onset_idx) && ~isnan(flutter_onset_idx)
+        selected_idx = [max(1, flutter_onset_idx-1), flutter_onset_idx, ...
+            min(n_lambda, flutter_onset_idx+1)];
+    else
+        selected_idx = round(linspace(1, n_lambda, 3));
+    end
+
+    selected_idx = unique(selected_idx, 'stable');
+
+    if numel(selected_idx) < 3
+        fallback_idx = round(linspace(1, n_lambda, 3));
+        selected_idx = unique([selected_idx, fallback_idx], 'stable');
+        selected_idx = selected_idx(1:3);
+    end
+end
 
 
 function define_parallel_processing()
