@@ -78,7 +78,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
 
     params.disc_stress      = 10;
     params.disc_pressure    = 50;
-    params.pinf_sweep = linspace(0, 75e3, params.disc_pressure); % [Pa]
+    params.pinf_sweep = linspace(0, 100e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
     params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
