@@ -222,9 +222,18 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
     A = [zeros(NModes_w), eye(NModes_w); ...
          -struct_mat_Minv * struct_mat_K_total, -struct_mat_Minv * struct_mat_C];
 
-    max_real_eig = real(eigs(A, 1, 'largestreal'));
-
     eigvals_all = eig(A);
+
+    opts = struct('tol', 1e-10, 'maxit', 500, 'issym', false, 'isreal', false);
+    warn_state = warning('off', 'MATLAB:eigs:NoEigsConverged');
+    [~, D_right, flag_right] = eigs(A, 1, 'lr', opts);
+    warning(warn_state);
+
+    if flag_right == 0 && all(isfinite(diag(D_right)))
+        max_real_eig = real(D_right(1,1));
+    else
+        max_real_eig = max(real(eigvals_all));
+    end
     omega_scale = max(1, max(abs(imag(eigvals_all))));
 
     positive_frequency_mask = imag(eigvals_all) > 0;
