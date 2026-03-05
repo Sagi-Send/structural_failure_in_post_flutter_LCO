@@ -77,7 +77,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.y_points = reshape(yMesh, 1, []);
 
     params.disc_stress      = 10;
-    params.disc_pressure    = 50;
+    params.disc_pressure    = 30;
     params.pinf_sweep = linspace(0, 108e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
@@ -261,29 +261,35 @@ function plot_output(params, plot_data)
 
     stress_cr = vm_max_p / params.sf_rel;
 
+    % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(2,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    % ---------------- w_center(t)/h for selected lambdas ----------------
-    nexttile; hold on; grid off;
+    selected_idx = [round(numel(lambda)/3), round(2*numel(lambda)/3), numel(lambda)];
+    for k = 1:numel(selected_idx)
+        idx = selected_idx(k);
+        nexttile; hold on; grid off;
+        plot(t_eval, w_center(idx,:)/h, 'LineWidth', style.lineWidth);
+        set(gca,'FontSize',style.axesFontSize);
+        xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
+        ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
+        title(sprintf('$\\lambda = %.1f$', lambda(idx)), ...
+            'Interpreter','latex', 'FontSize', style.titleFontSize);
+        xlim([0, 0.115*t_eval(end)]);
+        axis square
+    end
 
-    plot(t_eval, w_center(end,:)/h, 'LineWidth', style.lineWidth, ...
-    'DisplayName', sprintf('$\\lambda = %.1f$', lambda(end)));
-
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
-    legend('show','Interpreter','latex','Location','best', 'FontSize', style.legendFontSize);
-    xlim([0, 0.115*t_eval(end)]);
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
 
     scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
     set(gca,'FontSize',style.axesFontSize);
-    xlim([0, 1300]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
 
     % ---------------- lambda vs LCO amp ----------------
     nexttile; hold on; grid off;
@@ -293,6 +299,7 @@ function plot_output(params, plot_data)
     xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
 
     % ---------------- max VM vs p_inf ----------------
     nexttile; hold on; grid off;
@@ -300,26 +307,34 @@ function plot_output(params, plot_data)
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$\sigma_{cr}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
 
     % ---------------- location of max VM on the panel ----------------
     nexttile; hold on; grid on;
-    scatter(x_max, y_max, style.scatterSizeMedium, lambda, 'filled');  % color by pressure
+    
+    xN = x_max./a;          % x normalized by panel length a
+    yN = y_max./b;          % y normalized by panel width  b
+    
+    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');  % color by pressure
+    
     cb = colorbar; cb.Label.String = '$\lambda$';
     cb.Label.Interpreter = 'latex';
     cb.TickLabelInterpreter = 'latex';
     cb.Label.FontSize = style.labelFontSize;
     cb.FontSize = style.axesFontSize;
+    
     set(gca,'FontSize',style.axesFontSize);
-    xlabel('$x$ [m]','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$y$ [m]','Interpreter','latex','FontSize',style.labelFontSize);
-    title('Location of $\max\sigma_{\mathrm{VM}}$','Interpreter','latex', 'FontSize', style.titleFontSize);
-    xlim([0, a]); ylim([-b/2, b/2]);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    
+    xlim([0, 1]);
+    ylim([-0.5, 0.5]);
+    axis square
 
     % highlight flutter-onset location if available
-    plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
-        'MarkerSize', style.flutterMarkerSize, 'LineWidth', style.highlightLineWidth);
+    % plot(x_max(flutter_onset_idx)/a, y_max(flutter_onset_idx)/b, 'kp', ...
+    %     'MarkerSize', style.flutterMarkerSize, 'LineWidth', style.highlightLineWidth);
 end
-
 
 
 function define_parallel_processing()
