@@ -175,8 +175,6 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
         vm_upper(idx,:,:) = reshape(vmU_local, [1, nPts, Nt]);
         vm_lower(idx,:,:) = reshape(vmL_local, [1, nPts, Nt]);
 
-        cr_idx = min([find(vm_upper == params.sf_rel), find(vm_lower == params.sf_rel)]); 
-
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
         struct_mat_C       = struct_mat_Awdot;
 
@@ -259,8 +257,7 @@ function plot_output(params, plot_data)
     x_max         = plot_data.x_max_vm;
     y_max         = plot_data.y_max_vm;
 
-    % nondimensionalize
-    stress_cr = vm_max_p * params.sf/params.sigma_y;
+    stress_cr = vm_max_p / params.sf_rel;
 
     figure;
     tiledlayout(2,3,'TileSpacing','compact','Padding','compact');
@@ -280,7 +277,7 @@ function plot_output(params, plot_data)
     end
 
     set(gca,'FontSize',18);
-    xlabel('$t$','Interpreter','latex','FontSize',24);
+    xlabel('$t [sec]$','Interpreter','latex','FontSize',24);
     ylabel('$w_{center}/h$','Interpreter','latex','FontSize',24);
     legend('show','Interpreter','latex','Location','best');
     xlim([0, t_eval(end)]);
@@ -308,7 +305,7 @@ function plot_output(params, plot_data)
     plot(lambda, stress_cr, '-o', 'LineWidth', 1.5);
     set(gca,'FontSize',18);
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
-    ylabel('$\max \sigma_{\mathrm{VM}}$ [Pa]','Interpreter','latex','FontSize',24);
+    ylabel('$\sigma_{cr}$','Interpreter','latex','FontSize',24);
 
     plot(lambda(flutter_onset_idx), stress_cr(flutter_onset_idx), 'ks', ...
         'MarkerSize', 10, 'LineWidth', 2, 'DisplayName','flutter onset');
