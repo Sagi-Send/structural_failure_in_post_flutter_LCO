@@ -286,17 +286,8 @@ function plot_output(params, plot_data)
     end
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-
-    % ---------------- damping vs lambda ----------------
-    nexttile; hold on; grid off;
-
-    scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
-
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    
     % ---------------- lambda vs transient amp ----------------
     nexttile; hold on; grid off;
 
@@ -319,16 +310,7 @@ function plot_output(params, plot_data)
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-
-    % ---------------- damping vs lambda ----------------
-    nexttile; hold on; grid off;
-
-    scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- lambda vs steady amp ----------------
     nexttile; hold on; grid off;
@@ -352,7 +334,7 @@ function plot_output(params, plot_data)
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- location of transient max VM on the panel ----------------
     nexttile; hold on; grid on;
@@ -398,6 +380,15 @@ function plot_output(params, plot_data)
     
     xlim([0, 1]);
     ylim([-0.5, 0.5]);
+    axis square
+
+    % ---------------- damping vs lambda ----------------
+    nexttile; hold on; grid off;
+
+    scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 end
 
