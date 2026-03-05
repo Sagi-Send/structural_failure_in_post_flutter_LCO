@@ -225,9 +225,7 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
     eigvals_all = eig(A);
 
     opts = struct('tol', 1e-10, 'maxit', 500, 'issym', false, 'isreal', false);
-    warn_state = warning('off', 'MATLAB:eigs:NoEigsConverged');
     [~, D_right, flag_right] = eigs(A, 1, 'lr', opts);
-    warning(warn_state);
 
     if flag_right == 0 && all(isfinite(diag(D_right)))
         max_real_eig = real(D_right(1,1));
