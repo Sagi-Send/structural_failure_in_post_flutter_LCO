@@ -163,8 +163,9 @@ end
 
 
 function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, reduced_freq_array, damping_array, t_eval)
-    figure;
-    tiledlayout(1,3,'TileSpacing','compact','Padding','compact');
+    plot_cfg = paper_plot_settings();
+    figure('Color', 'w', 'Units', plot_cfg.figure_units, 'Position', plot_cfg.figure_position);
+    tiledlayout(plot_cfg.n_rows, plot_cfg.n_cols, 'TileSpacing', plot_cfg.tile_spacing, 'Padding', plot_cfg.padding);
     
     % ---------------- w_center(t)/h for selected lambdas ----------------
     nexttile; hold on; grid off;
@@ -188,34 +189,34 @@ function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, re
     for k = 1:numel(idx_show)
         i = idx_show(k);
         if abs(lambda(i) - 1147.26) < 1
-        plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
+        plot(t_eval, w_center(i,:)/h, 'LineWidth', plot_cfg.line_width, ...
             'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
         end
     end
     
-    set(gca,'FontSize',18);
-    xlabel('$t$','Interpreter','latex','FontSize',24);
-    ylabel('$w_{center}/h$','Interpreter','latex','FontSize',24);
-    legend('show','Interpreter','latex','Location','best');
+    apply_panel_style(gca, plot_cfg);
+    xlabel('$t$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
+    ylabel('$w_{center}/h$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
+    legend('show','Interpreter','latex','Location','best','FontSize',plot_cfg.legend_font_size);
     xlim([0, t_eval(end)]);
     
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
     
-    scatter(lambda, damping_array, 300, '.', 'MarkerEdgeAlpha', 1);
-    set(gca,'FontSize',18);
-    xlim([0, 1300]);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',24);
-    ylabel('$\zeta$','Interpreter','latex','FontSize',24);
+    scatter(lambda, damping_array, plot_cfg.scatter_size, '.', 'MarkerEdgeAlpha', 1);
+    apply_panel_style(gca, plot_cfg);
+    xlim(plot_cfg.lambda_xlim);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
+    ylabel('$\zeta$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
 
     % ---------------- lambda vs LCO amp ----------------
     nexttile; hold on; grid off;
     
-    plot(lambda, A_LCO/h, '-o'); xlabel('\lambda'); ylabel('A_{LCO}/h');
-    set(gca,'FontSize',18);
-    xlim([0, 1300]);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',24);
-    ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
+    plot(lambda, A_LCO/h, '-o', 'LineWidth', plot_cfg.line_width, 'MarkerSize', plot_cfg.marker_size);
+    apply_panel_style(gca, plot_cfg);
+    xlim(plot_cfg.lambda_xlim);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
+    ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',plot_cfg.label_font_size);
 
     % ---------------- deflection vs lambda ----------------
     % nexttile; hold on;  grid off;
@@ -225,6 +226,34 @@ function plot_output(w_center, lambda, A_LCO, lambda_F, flutter_onset_idx, h, re
     % % ylim([w_max(2), max(w_max)]);
     % ylabel('$w_{center}/h$', 'Interpreter', 'latex', 'FontSize', 50);
     % xlabel('$\lambda$', 'Interpreter', 'latex', 'FontSize', 50);
+end
+
+
+function plot_cfg = paper_plot_settings()
+    % Shared settings for paper-ready multi-panel figures.
+    plot_cfg.figure_units = 'centimeters';
+    plot_cfg.figure_position = [2, 2, 36, 12];
+    plot_cfg.n_rows = 1;
+    plot_cfg.n_cols = 3;
+    plot_cfg.tile_spacing = 'compact';
+    plot_cfg.padding = 'compact';
+    plot_cfg.axes_font_size = 16;
+    plot_cfg.label_font_size = 20;
+    plot_cfg.legend_font_size = 14;
+    plot_cfg.axes_line_width = 1.2;
+    plot_cfg.line_width = 1.8;
+    plot_cfg.marker_size = 7;
+    plot_cfg.scatter_size = 220;
+    plot_cfg.lambda_xlim = [0, 1300];
+end
+
+
+function apply_panel_style(ax, plot_cfg)
+    set(ax, ...
+        'FontSize', plot_cfg.axes_font_size, ...
+        'LineWidth', plot_cfg.axes_line_width, ...
+        'TickLabelInterpreter', 'latex', ...
+        'Box', 'on');
 end
 
 
