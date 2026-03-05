@@ -307,10 +307,6 @@ function plot_output(params, plot_data)
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$\sigma_{cr}$','Interpreter','latex','FontSize',24);
 
-    plot(lambda(flutter_onset_idx), stress_cr(flutter_onset_idx), 'ks', ...
-        'MarkerSize', 10, 'LineWidth', 2, 'DisplayName','flutter onset');
-    legend('show','Interpreter','latex','Location','best');
-
     % ---------------- location of max VM on the panel ----------------
     nexttile; hold on; grid on;
     scatter(x_max, y_max, 60, lambda, 'filled');  % color by pressure
