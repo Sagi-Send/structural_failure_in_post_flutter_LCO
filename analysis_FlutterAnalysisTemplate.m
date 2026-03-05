@@ -78,7 +78,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
 
     params.disc_stress      = 10;
     params.disc_pressure    = 50;
-    params.pinf_sweep = linspace(0, 100e3, params.disc_pressure); % [Pa]
+    params.pinf_sweep = linspace(0, 108e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
     params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
@@ -265,22 +265,14 @@ function plot_output(params, plot_data)
     % ---------------- w_center(t)/h for selected lambdas ----------------
     nexttile; hold on; grid off;
 
-    n_show   = min(400, numel(lambda));
-    idx_show = unique(round(linspace(1, numel(lambda), n_show)));
-
-    for k = 1:numel(idx_show)
-        i = idx_show(k);
-        if abs(lambda(i) - 1147.26) < 1
-            plot(t_eval, w_center(i,:)/h, 'LineWidth', 1.5, ...
-                'DisplayName', sprintf('$\\lambda = %.1f$', lambda(i)));
-        end
-    end
+    plot(t_eval, w_center(end,:)/h, 'LineWidth', 1.5, ...
+    'DisplayName', sprintf('$\\lambda = %.1f$', lambda(end)));
 
     set(gca,'FontSize',18);
     xlabel('$t [sec]$','Interpreter','latex','FontSize',24);
     ylabel('$w_{center}/h$','Interpreter','latex','FontSize',24);
     legend('show','Interpreter','latex','Location','best');
-    xlim([0, t_eval(end)]);
+    xlim([0, 0.115*t_eval(end)]);
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
