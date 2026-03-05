@@ -65,7 +65,7 @@ classdef FlutterAnalysisCache
 
             plot_data.w_center = solve_data.w_center;
             Nt = numel(params.t_eval);
-            idx_transient = FlutterAnalysisCache.select_time_window_indices(Nt, 0.0, 0.2);
+            idx_transient = FlutterAnalysisCache.select_time_window_indices(Nt, 0.0, 0.15);
             idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 0.8, 1.0);
 
             if isfield(solve_data, 'amp_transient') && ~isempty(solve_data.amp_transient)

@@ -167,7 +167,7 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, 0.2]);
+        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, 0.15]);
         amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [0.8, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
@@ -258,9 +258,6 @@ function plot_output(params, plot_data)
     w_center      = plot_data.w_center;
     A_transient   = plot_data.A_transient;
     A_steady      = plot_data.A_steady;
-    lambda_F      = plot_data.lambda_F;
-    flutter_onset_idx = plot_data.flutter_idx;
-    reduced_freq_array = plot_data.reduced_freq_array;
     damping_array = plot_data.damping_array;
     vm_max_transient = plot_data.vm_max_transient;
     vm_max_steady    = plot_data.vm_max_steady;
