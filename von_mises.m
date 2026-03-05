@@ -1,20 +1,9 @@
-function [vm_upper, vm_lower] = von_mises( ...
-    Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
+﻿function [vm_upper, vm_lower] = von_mises( ...
+    Q, Psi_xx, Psi_yy, Psi_xy, ...
     struct_mat_B2, h, nu, D)
 
 % Q: [Nt x N]
 [Nt, N] = size(Q);
-nPts = numel(x_points);
-
-% basis second-derivative matrices at points (N x nPts)
-Psi_xx = zeros(N, nPts);
-Psi_yy = zeros(N, nPts);
-Psi_xy = zeros(N, nPts);
-for n = 1:N
-    Psi_xx(n,:) = psi_w_xx{n}(x_points, y_points);
-    Psi_yy(n,:) = psi_w_yy{n}(x_points, y_points);
-    Psi_xy(n,:) = psi_w_xy{n}(x_points, y_points);
-end
 
 % curvatures at points over time (nPts x Nt)
 w_xx = (Q * Psi_xx).';
@@ -27,7 +16,7 @@ Myy = -D * (w_yy + nu * w_xx);
 Mxy = -D * (1 - nu) * w_xy;
 
 % Airy coefficients c(t): F(x,y,t) = sum c_n(t) psi_n(x,y)
-% c = (A^{-1}B) : (q ⊗ q) = struct_mat_B2(q,q)
+% c = (A^{-1}B) : (q \otimes q) = struct_mat_B2(q,q)
 Ccoef = zeros(Nt, N);
 for it = 1:Nt
     q = Q(it,:).';                                % [N x 1]
@@ -51,8 +40,8 @@ sxx_m = Nxx / h;
 syy_m = Nyy / h;
 sxy_m = Nxy / h;
 
-% bending stresses at z = ±h/2
-coef = 6 / h^2;   % (12z/h^3) with z=±h/2
+% bending stresses at z = +/-h/2
+coef = 6 / h^2;   % (12z/h^3) with z=+/-h/2
 sxx_b = coef * Mxx;
 syy_b = coef * Myy;
 sxy_b = coef * Mxy;
