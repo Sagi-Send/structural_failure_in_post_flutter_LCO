@@ -272,7 +272,7 @@ function plot_output(params, plot_data)
         plot(t_eval, w_center(idx,:)/h, 'LineWidth', style.lineWidth);
         set(gca,'FontSize',style.axesFontSize);
         xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
-        ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
+        ylabel('$w_{center}^{steady}/h$','Interpreter','latex','FontSize',style.labelFontSize);
         title(sprintf('$\\lambda = %.1f$', lambda(idx)), ...
             'Interpreter','latex', 'FontSize', style.titleFontSize);
         xlim([0, 0.115*t_eval(end)]);
