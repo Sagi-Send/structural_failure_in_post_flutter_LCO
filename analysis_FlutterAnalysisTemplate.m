@@ -86,7 +86,9 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.lambda   = params.gamma * params.pinf_sweep * params.Minf *...
         (a^3 / D);
     params.tol      = 1e-15; % dimensionless safety factor
-    params.sf       = 2;    params.sigma_y = 450*10^6;
+    
+    sf = 2; sigma_y = 450*10^6;
+    params.sf_rel = sigma_y/sf;
 end
 
 
@@ -172,6 +174,8 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
 
         vm_upper(idx,:,:) = reshape(vmU_local, [1, nPts, Nt]);
         vm_lower(idx,:,:) = reshape(vmL_local, [1, nPts, Nt]);
+
+        cr_idx = min([find(vm_upper == params.sf_rel), find(vm_lower == params.sf_rel)]); 
 
         struct_mat_K_total = struct_mat_K + struct_mat_Aw;
         struct_mat_C       = struct_mat_Awdot;
