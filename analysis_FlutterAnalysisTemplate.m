@@ -83,8 +83,10 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.Minf = 4.0;
     params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
 
-    params.lambda = params.gamma * params.pinf_sweep * params.Minf * (a^3 / D);
-    params.tol = 1e-15; % dimensionless safety factor
+    params.lambda   = params.gamma * params.pinf_sweep * params.Minf *...
+        (a^3 / D);
+    params.tol      = 1e-15; % dimensionless safety factor
+    params.sf       = 2;    params.sigma_y = 450*10^6;
 end
 
 
@@ -253,6 +255,9 @@ function plot_output(params, plot_data)
     x_max         = plot_data.x_max_vm;
     y_max         = plot_data.y_max_vm;
 
+    % nondimensionalize
+    stress_cr = vm_max_p * params.sf/params.sigma_y;
+
     figure;
     tiledlayout(2,3,'TileSpacing','compact','Padding','compact');
 
@@ -290,40 +295,36 @@ function plot_output(params, plot_data)
 
     plot(lambda, A_LCO/h, '-o');
     set(gca,'FontSize',18);
-    xlim([0, 1300]);
+    xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',24);
 
     % ---------------- max VM vs p_inf ----------------
     nexttile; hold on; grid off;
-    plot(pinf, vm_max_p, '-o', 'LineWidth', 1.5);
+    plot(lambda, stress_cr, '-o', 'LineWidth', 1.5);
     set(gca,'FontSize',18);
-    xlabel('$p_\infty$ [Pa]','Interpreter','latex','FontSize',24);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',24);
     ylabel('$\max \sigma_{\mathrm{VM}}$ [Pa]','Interpreter','latex','FontSize',24);
 
-    % mark flutter onset on VM curve (if available)
-    if ~isnan(lambda_F) && ~isempty(flutter_onset_idx)
-        plot(pinf(flutter_onset_idx), vm_max_p(flutter_onset_idx), 'ks', ...
-            'MarkerSize', 10, 'LineWidth', 2, 'DisplayName','flutter onset');
-        legend('show','Interpreter','latex','Location','best');
-    end
+    plot(lambda(flutter_onset_idx), stress_cr(flutter_onset_idx), 'ks', ...
+        'MarkerSize', 10, 'LineWidth', 2, 'DisplayName','flutter onset');
+    legend('show','Interpreter','latex','Location','best');
 
     % ---------------- location of max VM on the panel ----------------
     nexttile; hold on; grid on;
-    scatter(x_max, y_max, 60, pinf, 'filled');  % color by pressure
-    cb = colorbar; cb.Label.String = 'p_\infty [Pa]';
+    scatter(x_max, y_max, 60, lambda, 'filled');  % color by pressure
+    cb = colorbar; cb.Label.String = '$\lambda$';
+    cb.Label.Interpreter = 'latex';
+    cb.TickLabelInterpreter = 'latex';
     set(gca,'FontSize',18);
     xlabel('$x$ [m]','Interpreter','latex','FontSize',24);
     ylabel('$y$ [m]','Interpreter','latex','FontSize',24);
     title('Location of $\max\sigma_{\mathrm{VM}}$','Interpreter','latex');
     xlim([0, a]); ylim([-b/2, b/2]);
-    axis equal;
 
     % highlight flutter-onset location if available
-    if ~isnan(lambda_F) && ~isempty(flutter_onset_idx)
-        plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
-            'MarkerSize', 14, 'LineWidth', 2);
-    end
+    plot(x_max(flutter_onset_idx), y_max(flutter_onset_idx), 'kp', ...
+        'MarkerSize', 14, 'LineWidth', 2);
 end
 
 
