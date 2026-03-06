@@ -25,7 +25,7 @@ params.D  = D;
     results_mat_file, params, force_resolve);
 
 if ~cache_loaded
-    [w_center, w_i, lambda_F, amp_transient, amp_steady, flutter_onset_idx, ...
+    [w_center, w_i, lambda_F, amp_steady, flutter_onset_idx, ...
         natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
         vm_upper, vm_lower] = pressure_sweep( ...
         params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -36,7 +36,6 @@ if ~cache_loaded
         'w_center', w_center, ...
         'w_i', w_i, ...
         'lambda_F', lambda_F, ...
-        'amp_transient', amp_transient, ...
         'amp_steady', amp_steady, ...
         'flutter_onset_idx', flutter_onset_idx, ...
         'natural_frequencies_hz_array', natural_frequencies_hz_array, ...
@@ -91,12 +90,11 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     sf = 2; sigma_y = 450*10^6;
     params.sf_rel = sigma_y/sf;
 
-    params.trans_frac   = 0.015;
     params.steady_frac  = 0.2;
 end
 
 
-function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx, ...
+function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
     natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
     vm_upper, vm_lower] = ...
     pressure_sweep(params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -117,7 +115,6 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
     q_qdot_ics = params.q_qdot_ics;
     T0         = params.T0;
     steady_frac = params.steady_frac;
-    trans_frac = params.trans_frac;
 
     % Stress evaluation grid (disc_stress x disc_stress)
     x_lin = linspace(0, a, params.disc_stress);
@@ -146,7 +143,6 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
     damping_array                = zeros(NModes_w, n_pressures);
     max_real_eig                 = zeros(1, n_pressures);
     unstable                     = false(1, n_pressures);
-    amp_transient                = zeros(1, n_pressures);
     amp_steady                   = zeros(1, n_pressures);
 
     % Find center point index (nearest)
@@ -174,7 +170,6 @@ function [w_center, w_i, lambda_F, amp_transient, amp_steady, first_unstable_idx
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        amp_transient(idx) = estimate_window_amplitude(t_eval, w_center_local, [0, trans_frac]);
         amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [1-steady_frac, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
@@ -279,12 +274,9 @@ function plot_output(params, plot_data)
     b      = plot_data.b;
     h      = plot_data.h;
     w_center      = plot_data.w_center;
-    A_transient   = plot_data.A_transient;
     A_steady      = plot_data.A_steady;
     damping_array = plot_data.damping_array;
-    vm_max_transient = plot_data.vm_max_transient;
     vm_max_steady    = plot_data.vm_max_steady;
-    stress_cr_transient = vm_max_transient / params.sf_rel;
     stress_cr_steady    = vm_max_steady / params.sf_rel;
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
@@ -304,30 +296,6 @@ function plot_output(params, plot_data)
         xlim([0, 0.115*t_eval(end)]);
         axis square
     end
-
-    figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-    
-    % ---------------- lambda vs transient amp ----------------
-    nexttile; hold on; grid off;
-
-    plot(lambda, A_transient/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
-    set(gca,'FontSize',style.axesFontSize);
-    xlim([0, max(lambda)]);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$(w_{center}/h)_{amp}^{trans.}$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
-
-    % ---------------- max transient VM vs lambda ----------------
-    nexttile; hold on; grid off;
-    plot(lambda, stress_cr_transient, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\sigma_{cr}^{trans,}$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
-
-    sgtitle('Transient window (first 20% of time marching)', ...
-        'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
@@ -354,30 +322,7 @@ function plot_output(params, plot_data)
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-
-    % ---------------- location of transient max VM on the panel ----------------
-    nexttile; hold on; grid on;
-    
-    xN = plot_data.x_max_vm_transient./a;          % x normalized by panel length a
-    yN = plot_data.y_max_vm_transient./b;          % y normalized by panel width  b
-    
-    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');  % color by pressure
-    
-    cb = colorbar; cb.Label.String = '$\lambda$';
-    cb.Label.Interpreter = 'latex';
-    cb.TickLabelInterpreter = 'latex';
-    cb.Label.FontSize = style.labelFontSize;
-    cb.FontSize = style.axesFontSize;
-    
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-    title('Transient stress hotspot','FontSize',style.titleFontSize);
-
-    xlim([0, 1]);
-    ylim([-0.5, 0.5]);
-    axis square
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- location of steady max VM on the panel ----------------
     nexttile; hold on; grid on;
