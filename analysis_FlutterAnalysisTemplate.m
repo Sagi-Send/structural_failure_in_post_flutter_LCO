@@ -133,6 +133,12 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
     Nt          = numel(t_eval);
     nPts        = numel(x_points);
 
+    progress_step = max(1, ceil(0.10 * n_pressures));
+    completed = 0;
+    dq = parallel.pool.DataQueue;
+    afterEach(dq, @update_progress);
+    fprintf('Pressure sweep progress: 0/%d (0%%)\n', n_pressures);
+
     % Preallocation
     w_center                     = zeros(n_pressures, Nt);
     w_i                          = zeros(n_pressures, nPts, Nt);
@@ -188,13 +194,27 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
                                       struct_mat_C, NModes_w);
 
         unstable(idx) = max_real_eig(idx) > (omega_scale * tol);
+        send(dq, 1);
     end
+
+    fprintf('Pressure sweep progress: %d/%d (100%%)\n', ...
+        completed, n_pressures);
 
     first_unstable_idx = find(unstable, 1, 'first');
     if isempty(first_unstable_idx)
         lambda_F = nan;
     else
         lambda_F = lambda(first_unstable_idx);
+    end
+
+
+    function update_progress(~)
+        completed = completed + 1;
+        if mod(completed, progress_step) == 0 || completed == n_pressures
+            pct = 100 * completed / n_pressures;
+            fprintf('Pressure sweep progress: %d/%d (%.0f%%)\n', ...
+                completed, n_pressures, pct);
+        end
     end
 end
 
@@ -219,7 +239,7 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
 
     eigvals_all = eig(A);
 
-    opts = struct('tol', 1e-10, 'maxit', 500, 'issym', false, 'isreal', false);
+    opts = struct('tol', 1e-10, 'maxit', 500);
     [~, D_right, flag_right] = eigs(A, 1, 'lr', opts);
 
     if flag_right == 0 && all(isfinite(diag(D_right)))
