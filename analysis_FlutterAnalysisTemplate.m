@@ -349,8 +349,23 @@ function plot_output(params, plot_data)
 
     xN = plot_data.x_max_vm_steady./a;
     yN = plot_data.y_max_vm_steady./b;
+    if isfield(plot_data, 'max_vm_surface_steady')
+        max_vm_surface = plot_data.max_vm_surface_steady;
+    else
+        max_vm_surface = repmat("upper", size(xN));
+    end
 
-    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+    is_upper = strcmp(max_vm_surface, "upper");
+    is_lower = strcmp(max_vm_surface, "lower");
+
+    if any(is_upper)
+        scatter(xN(is_upper), yN(is_upper), style.scatterSizeMedium, ...
+            lambda(is_upper), 'o', 'filled', 'DisplayName', 'Upper surface');
+    end
+    if any(is_lower)
+        scatter(xN(is_lower), yN(is_lower), style.scatterSizeMedium, ...
+            lambda(is_lower), '^', 'filled', 'DisplayName', 'Lower surface');
+    end
 
     cb = colorbar; cb.Label.String = '$\lambda$';
     cb.Label.Interpreter = 'latex';
@@ -366,6 +381,7 @@ function plot_output(params, plot_data)
     xlim([0, 1]);
     ylim([-0.5, 0.5]);
     axis square
+    legend('Location','best');
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
