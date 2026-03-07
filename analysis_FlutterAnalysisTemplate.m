@@ -297,6 +297,7 @@ function plot_output(params, plot_data)
     A_steady      = plot_data.A_steady;
     damping_array = plot_data.damping_array;
     vm_max_steady    = plot_data.vm_max_steady;
+    critical_surface_sign = plot_data.critical_surface_sign_steady;
     stress_cr_steady    = vm_max_steady / params.sf_rel;
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
@@ -351,6 +352,15 @@ function plot_output(params, plot_data)
     yN = plot_data.y_max_vm_steady./b;
 
     scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+
+    for i = 1:numel(xN)
+        text(xN(i), yN(i), critical_surface_sign(i), ...
+            'HorizontalAlignment', 'center', ...
+            'VerticalAlignment', 'middle', ...
+            'Color', 'w', ...
+            'FontWeight', 'bold', ...
+            'FontSize', style.axesFontSize - 1);
+    end
 
     cb = colorbar; cb.Label.String = '$\lambda$';
     cb.Label.Interpreter = 'latex';
