@@ -25,7 +25,7 @@ params.D  = D;
     results_mat_file, params, force_resolve);
 
 if ~cache_loaded
-    [w_center, w_i, lambda_F, lco_amp, flutter_onset_idx, ...
+    [w_center, w_i, lambda_F, amp_steady, flutter_onset_idx, ...
         natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
         vm_upper, vm_lower] = pressure_sweep( ...
         params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -36,7 +36,7 @@ if ~cache_loaded
         'w_center', w_center, ...
         'w_i', w_i, ...
         'lambda_F', lambda_F, ...
-        'lco_amp', lco_amp, ...
+        'amp_steady', amp_steady, ...
         'flutter_onset_idx', flutter_onset_idx, ...
         'natural_frequencies_hz_array', natural_frequencies_hz_array, ...
         'damping_array', damping_array, ...
@@ -76,9 +76,9 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.x_points = reshape(xMesh, 1, []);
     params.y_points = reshape(yMesh, 1, []);
 
-    params.disc_stress      = 10;
+    params.disc_stress      = 20;
     params.disc_pressure    = 30;
-    params.pinf_sweep = linspace(0, 108e3, params.disc_pressure); % [Pa]
+    params.pinf_sweep = linspace(0, 120e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
     params.T0 = 400; % [K], for aerodynamic damping nondimensionalization
@@ -89,10 +89,12 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     
     sf = 2; sigma_y = 450*10^6;
     params.sf_rel = sigma_y/sf;
+
+    params.steady_frac  = 0.2;
 end
 
 
-function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
+function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
     natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
     vm_upper, vm_lower] = ...
     pressure_sweep(params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -112,6 +114,7 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
     t_eval     = params.t_eval;
     q_qdot_ics = params.q_qdot_ics;
     T0         = params.T0;
+    steady_frac = params.steady_frac;
 
     % Stress evaluation grid (disc_stress x disc_stress)
     x_lin = linspace(0, a, params.disc_stress);
@@ -120,9 +123,21 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
     x_points = reshape(Xg, 1, []);
     y_points = reshape(Yg, 1, []);
 
+    % Precompute modal shape values once on the stress grid
+    Psi_w  = build_shape_matrix(psi_w,    x_points, y_points);
+    Psi_xx = build_shape_matrix(psi_w_xx, x_points, y_points);
+    Psi_yy = build_shape_matrix(psi_w_yy, x_points, y_points);
+    Psi_xy = build_shape_matrix(psi_w_xy, x_points, y_points);
+
     n_pressures = numel(pinf_sweep);
     Nt          = numel(t_eval);
     nPts        = numel(x_points);
+
+    progress_step = max(1, ceil(0.10 * n_pressures));
+    completed = 0;
+    dq = parallel.pool.DataQueue;
+    afterEach(dq, @update_progress);
+    fprintf('Pressure sweep progress: 0/%d (0%%)\n', n_pressures);
 
     % Preallocation
     w_center                     = zeros(n_pressures, Nt);
@@ -134,7 +149,7 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
     damping_array                = zeros(NModes_w, n_pressures);
     max_real_eig                 = zeros(1, n_pressures);
     unstable                     = false(1, n_pressures);
-    lco_amps                     = zeros(1, n_pressures);
+    amp_steady                   = zeros(1, n_pressures);
 
     % Find center point index (nearest)
     [~, i_center] = min((x_points - a/2).^2 + (y_points - 0).^2);
@@ -153,24 +168,19 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
         Q = w_modal(:, 1:NModes_w); % [Nt x NModes_w]
 
-        % deflection at all points for this pressure
-        w_i_local = zeros(nPts, Nt);
-        for it = 1:Nt
-            w_i_local(:, it) = modal2physical( ...
-                Q(it, :), x_points, y_points, psi_w).';
-        end
+        % deflection at all points for this pressure (vectorized)
+        w_i_local = modal2physical(Q, Psi_w).';
 
         % store full-field + center trace
         w_i(idx,:,:)    = reshape(w_i_local, [1, nPts, Nt]);
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        lco_amps(idx) = estimate_lco_amplitude(t_eval, w_center_local, 0.8);
+        amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [1-steady_frac, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
         [vmU_local, vmL_local] = von_mises( ...
-            Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
-            struct_mat_B2, h, nu, D);
+            Q, Psi_xx, Psi_yy, Psi_xy, struct_mat_B2, h, nu, D);
 
         vm_upper(idx,:,:) = reshape(vmU_local, [1, nPts, Nt]);
         vm_lower(idx,:,:) = reshape(vmL_local, [1, nPts, Nt]);
@@ -184,13 +194,27 @@ function [w_center, w_i, lambda_F, lco_amps, first_unstable_idx, ...
                                       struct_mat_C, NModes_w);
 
         unstable(idx) = max_real_eig(idx) > (omega_scale * tol);
+        send(dq, 1);
     end
+
+    fprintf('Pressure sweep progress: %d/%d (100%%)\n', ...
+        completed, n_pressures);
 
     first_unstable_idx = find(unstable, 1, 'first');
     if isempty(first_unstable_idx)
         lambda_F = nan;
     else
         lambda_F = lambda(first_unstable_idx);
+    end
+
+
+    function update_progress(~)
+        completed = completed + 1;
+        if mod(completed, progress_step) == 0 || completed == n_pressures
+            pct = 100 * completed / n_pressures;
+            fprintf('Pressure sweep progress: %d/%d (%.0f%%)\n', ...
+                completed, n_pressures, pct);
+        end
     end
 end
 
@@ -214,7 +238,15 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
          -struct_mat_Minv * struct_mat_K_total, -struct_mat_Minv * struct_mat_C];
 
     eigvals_all = eig(A);
-    max_real_eig = max(real(eigvals_all));
+
+    opts = struct('tol', 1e-10, 'maxit', 500);
+    [~, D_right, flag_right] = eigs(A, 1, 'lr', opts);
+
+    if flag_right == 0 && all(isfinite(diag(D_right)))
+        max_real_eig = real(D_right(1,1));
+    else
+        max_real_eig = max(real(eigvals_all));
+    end
     omega_scale = max(1, max(abs(imag(eigvals_all))));
 
     positive_frequency_mask = imag(eigvals_all) > 0;
@@ -227,15 +259,27 @@ function [natural_frequencies_hz, damping, max_real_eig, omega_scale] = ...
     damping = sigma ./ omega_rad_s;
 end
 
-% Estimate LCO amplitude from a scalar time series w(t).
-function lco_amp = estimate_lco_amplitude(t, w, transientFrac)
-    if nargin < 3 || isempty(transientFrac), transientFrac = 0.33; end
+function Psi = build_shape_matrix(psi_cell, x_points, y_points)
+    N = numel(psi_cell);
+    nPts = numel(x_points);
+    Psi = zeros(N, nPts);
+    for n = 1:N
+        Psi(n,:) = psi_cell{n}(x_points, y_points);
+    end
+end
 
+% Estimate displacement amplitude from a selected [startFrac, endFrac] window.
+function amp = estimate_window_amplitude(t, w, frac_window)
+    idx_window = select_time_window_indices(t, frac_window(1), frac_window(2));
+    w_window = w(idx_window);
+    amp = 0.5*(max(w_window) - min(w_window));
+end
+
+function idx_window = select_time_window_indices(t, startFrac, endFrac)
     Nt = numel(t);
-    i0 = max(1, floor(transientFrac*Nt) + 1); % index where steady window starts
-    w_ss = w(i0:end);
-
-    lco_amp = 0.5*(max(w_ss) - min(w_ss));
+    i_start = max(1, floor(startFrac*Nt) + 1);
+    i_end   = min(Nt, max(i_start, floor(endFrac*Nt)));
+    idx_window = i_start:i_end;
 end
 
 
@@ -250,29 +294,23 @@ function plot_output(params, plot_data)
     b      = plot_data.b;
     h      = plot_data.h;
     w_center      = plot_data.w_center;
-    A_LCO         = plot_data.A_LCO;
-    lambda_F      = plot_data.lambda_F;
-    flutter_onset_idx = plot_data.flutter_idx;
-    reduced_freq_array = plot_data.reduced_freq_array;
+    A_steady      = plot_data.A_steady;
     damping_array = plot_data.damping_array;
-    vm_max_p      = plot_data.vm_max_p;
-    x_max         = plot_data.x_max_vm;
-    y_max         = plot_data.y_max_vm;
-
-    stress_cr = vm_max_p / params.sf_rel;
+    vm_max_steady    = plot_data.vm_max_steady;
+    stress_cr_steady    = vm_max_steady / params.sf_rel;
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    selected_idx = [round(numel(lambda)/3), round(2*numel(lambda)/3), numel(lambda)];
+    selected_idx = [round(numel(lambda)/4), round(numel(lambda)/2), round(0.85*numel(lambda)),numel(lambda)];
     for k = 1:numel(selected_idx)
         idx = selected_idx(k);
         nexttile; hold on; grid off;
         plot(t_eval, w_center(idx,:)/h, 'LineWidth', style.lineWidth);
         set(gca,'FontSize',style.axesFontSize);
         xlabel('$t [sec]$','Interpreter','latex','FontSize',style.labelFontSize);
-        ylabel('$w_{center}^{steady}/h$','Interpreter','latex','FontSize',style.labelFontSize);
+        ylabel('$w_{center}/h$','Interpreter','latex','FontSize',style.labelFontSize);
         title(sprintf('$\\lambda = %.1f$', lambda(idx)), ...
             'Interpreter','latex', 'FontSize', style.titleFontSize);
         xlim([0, 0.115*t_eval(end)]);
@@ -280,7 +318,54 @@ function plot_output(params, plot_data)
     end
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+
+    % ---------------- lambda vs steady amp ----------------
+    nexttile; hold on; grid off;
+
+    plot(lambda, A_steady/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    set(gca,'FontSize',style.axesFontSize);
+    xlim([0, max(lambda)]);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$(w_{center}/h)_{amp}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+
+    % ---------------- max steady VM vs lambda ----------------
+    nexttile; hold on; grid off;
+    plot(lambda, stress_cr_steady, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\sigma_{cr}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+
+    sgtitle('Steady window (last 20% of time marching)', ...
+        'FontSize', style.titleFontSize, 'FontWeight', 'normal');
+
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+
+    % ---------------- location of steady max VM on the panel ----------------
+    nexttile; hold on; grid on;
+
+    xN = plot_data.x_max_vm_steady./a;
+    yN = plot_data.y_max_vm_steady./b;
+
+    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+
+    cb = colorbar; cb.Label.String = '$\lambda$';
+    cb.Label.Interpreter = 'latex';
+    cb.TickLabelInterpreter = 'latex';
+    cb.Label.FontSize = style.labelFontSize;
+    cb.FontSize = style.axesFontSize;
+
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    title('Steady stress hotspot','FontSize',style.titleFontSize);
+    
+    xlim([0, 1]);
+    ylim([-0.5, 0.5]);
+    axis square
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
@@ -290,50 +375,6 @@ function plot_output(params, plot_data)
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
-
-    % ---------------- lambda vs LCO amp ----------------
-    nexttile; hold on; grid off;
-
-    plot(lambda, A_LCO/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
-    set(gca,'FontSize',style.axesFontSize);
-    xlim([0, max(lambda)]);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$(w_{center}/h)_{amp.}$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
-
-    % ---------------- max VM vs p_inf ----------------
-    nexttile; hold on; grid off;
-    plot(lambda, stress_cr, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\sigma_{cr}$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
-
-    % ---------------- location of max VM on the panel ----------------
-    nexttile; hold on; grid on;
-    
-    xN = x_max./a;          % x normalized by panel length a
-    yN = y_max./b;          % y normalized by panel width  b
-    
-    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');  % color by pressure
-    
-    cb = colorbar; cb.Label.String = '$\lambda$';
-    cb.Label.Interpreter = 'latex';
-    cb.TickLabelInterpreter = 'latex';
-    cb.Label.FontSize = style.labelFontSize;
-    cb.FontSize = style.axesFontSize;
-    
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-    
-    xlim([0, 1]);
-    ylim([-0.5, 0.5]);
-    axis square
-
-    % highlight flutter-onset location if available
-    % plot(x_max(flutter_onset_idx)/a, y_max(flutter_onset_idx)/b, 'kp', ...
-    %     'MarkerSize', style.flutterMarkerSize, 'LineWidth', style.highlightLineWidth);
 end
 
 

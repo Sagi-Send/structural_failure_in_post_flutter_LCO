@@ -1,20 +1,8 @@
 function [vm_upper, vm_lower] = von_mises( ...
-    Q, x_points, y_points, psi_w_xx, psi_w_yy, psi_w_xy, ...
-    struct_mat_B2, h, nu, D)
+    Q, Psi_xx, Psi_yy, Psi_xy, struct_mat_B2, h, nu, D)
 
-% Q: [Nt x N]
+% Q: [Nt x N], Psi_**: [N x nPts]
 [Nt, N] = size(Q);
-nPts = numel(x_points);
-
-% basis second-derivative matrices at points (N x nPts)
-Psi_xx = zeros(N, nPts);
-Psi_yy = zeros(N, nPts);
-Psi_xy = zeros(N, nPts);
-for n = 1:N
-    Psi_xx(n,:) = psi_w_xx{n}(x_points, y_points);
-    Psi_yy(n,:) = psi_w_yy{n}(x_points, y_points);
-    Psi_xy(n,:) = psi_w_xy{n}(x_points, y_points);
-end
 
 % curvatures at points over time (nPts x Nt)
 w_xx = (Q * Psi_xx).';
