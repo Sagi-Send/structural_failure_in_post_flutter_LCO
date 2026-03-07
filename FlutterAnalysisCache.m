@@ -19,6 +19,14 @@ classdef FlutterAnalysisCache
             if ismember('plot_data', vars_in_file)
                 S_plot = load(results_mat_file, 'plot_data');
                 plot_data = S_plot.plot_data;
+
+                % Backfill newly added post-processing fields without
+                % forcing a full re-run.
+                if ~isfield(plot_data, 'critical_surface_sign_steady')
+                    S_vm = load(results_mat_file, 'vm_upper', 'vm_lower');
+                    plot_data = FlutterAnalysisCache.add_critical_surface_data( ...
+                        plot_data, params, S_vm.vm_upper, S_vm.vm_lower);
+                end
             else
                 S = load(results_mat_file, ...
                     'w_center', 'lco_amp', 'amp_steady', 'flutter_onset_idx', ...
@@ -82,11 +90,31 @@ classdef FlutterAnalysisCache
             plot_data.reduced_freq_array = ...
                 FlutterAnalysisCache.nondimentionalize(params, solve_data.natural_frequencies_hz_array);
 
-            vm_surf = max(cat(4, solve_data.vm_upper, solve_data.vm_lower), [], 4);
+            plot_data = FlutterAnalysisCache.add_critical_surface_data( ...
+                plot_data, params, solve_data.vm_upper, solve_data.vm_lower);
+        end
 
-            [plot_data.vm_max_steady, plot_data.x_max_vm_steady, ...
-                plot_data.y_max_vm_steady] = FlutterAnalysisCache.extract_vm_window_peak( ...
-                vm_surf, params, idx_steady);
+        function plot_data = add_critical_surface_data(plot_data, params, vm_upper, vm_lower)
+            Nt = numel(params.t_eval);
+            steady_frac = params.steady_frac;
+            idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 1-steady_frac, 1.0);
+
+            [vm_u, x_u, y_u] = FlutterAnalysisCache.extract_vm_window_peak(vm_upper, params, idx_steady);
+            [vm_l, x_l, y_l] = FlutterAnalysisCache.extract_vm_window_peak(vm_lower, params, idx_steady);
+
+            upper_is_critical = vm_u >= vm_l;
+
+            plot_data.vm_max_steady = vm_l;
+            plot_data.x_max_vm_steady = x_l;
+            plot_data.y_max_vm_steady = y_l;
+
+            plot_data.vm_max_steady(upper_is_critical) = vm_u(upper_is_critical);
+            plot_data.x_max_vm_steady(upper_is_critical) = x_u(upper_is_critical);
+            plot_data.y_max_vm_steady(upper_is_critical) = y_u(upper_is_critical);
+
+            plot_data.upper_is_critical_steady = upper_is_critical;
+            plot_data.critical_surface_sign_steady = repmat('-', size(upper_is_critical));
+            plot_data.critical_surface_sign_steady(upper_is_critical) = '+';
         end
 
         function [vm_max, x_max, y_max] = extract_vm_window_peak(vm_surf, params, idx_time)
