@@ -19,6 +19,17 @@ classdef FlutterAnalysisCache
             if ismember('plot_data', vars_in_file)
                 S_plot = load(results_mat_file, 'plot_data');
                 plot_data = S_plot.plot_data;
+
+                if ~isfield(plot_data, 'max_vm_surface_sign_steady') && ...
+                        all(ismember({'vm_upper', 'vm_lower'}, vars_in_file))
+                    S_vm = load(results_mat_file, 'vm_upper', 'vm_lower');
+                    Nt = numel(params.t_eval);
+                    idx_steady = FlutterAnalysisCache.select_time_window_indices(Nt, 1-params.steady_frac, 1.0);
+                    [plot_data.vm_max_steady, plot_data.x_max_vm_steady, ...
+                        plot_data.y_max_vm_steady, plot_data.max_vm_surface_sign_steady] = ...
+                        FlutterAnalysisCache.extract_vm_window_peak_with_surface( ...
+                        S_vm.vm_upper, S_vm.vm_lower, params, idx_steady);
+                end
             else
                 S = load(results_mat_file, ...
                     'w_center', 'lco_amp', 'amp_steady', 'flutter_onset_idx', ...
@@ -82,16 +93,21 @@ classdef FlutterAnalysisCache
             plot_data.reduced_freq_array = ...
                 FlutterAnalysisCache.nondimentionalize(params, solve_data.natural_frequencies_hz_array);
 
-            vm_surf = max(cat(4, solve_data.vm_upper, solve_data.vm_lower), [], 4);
-
             [plot_data.vm_max_steady, plot_data.x_max_vm_steady, ...
-                plot_data.y_max_vm_steady] = FlutterAnalysisCache.extract_vm_window_peak( ...
-                vm_surf, params, idx_steady);
+                plot_data.y_max_vm_steady, plot_data.max_vm_surface_sign_steady] = ...
+                FlutterAnalysisCache.extract_vm_window_peak_with_surface( ...
+                solve_data.vm_upper, solve_data.vm_lower, params, idx_steady);
         end
 
-        function [vm_max, x_max, y_max] = extract_vm_window_peak(vm_surf, params, idx_time)
-            vm_pt_time = squeeze(max(vm_surf(:, :, idx_time), [], 3));
-            [vm_max, idx_pt] = max(vm_pt_time, [], 2);
+        function [vm_max, x_max, y_max, surface_sign] = extract_vm_window_peak_with_surface(vm_upper, vm_lower, params, idx_time)
+            vm_all = cat(4, vm_upper(:, :, idx_time), vm_lower(:, :, idx_time));
+            n_pressures = size(vm_all, 1);
+            n_points = size(vm_all, 2);
+            n_time = size(vm_all, 3);
+
+            vm_flat = reshape(vm_all, n_pressures, []);
+            [vm_max, idx_flat] = max(vm_flat, [], 2);
+            [idx_pt, ~, idx_surface] = ind2sub([n_points, n_time, 2], idx_flat);
 
             x_lin = linspace(0, params.a, params.disc_stress);
             y_lin = linspace(-params.b/2, params.b/2, params.disc_stress);
@@ -101,6 +117,7 @@ classdef FlutterAnalysisCache
 
             x_max = x_points(idx_pt);
             y_max = y_points(idx_pt);
+            surface_sign = 2 - idx_surface;
         end
 
         function amp = amplitude_from_window(w_center, idx_window)

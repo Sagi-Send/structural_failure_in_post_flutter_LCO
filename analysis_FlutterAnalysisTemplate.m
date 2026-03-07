@@ -349,8 +349,34 @@ function plot_output(params, plot_data)
 
     xN = plot_data.x_max_vm_steady./a;
     yN = plot_data.y_max_vm_steady./b;
+    surf_sign = ones(size(xN));
+    if isfield(plot_data, 'max_vm_surface_sign_steady')
+        surf_sign = plot_data.max_vm_surface_sign_steady;
+    end
 
-    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+    idx_upper = surf_sign > 0;
+    idx_lower = surf_sign < 0;
+
+    scatter(xN, yN, 1, lambda, 'filled', ...
+        'MarkerFaceAlpha', 0, 'MarkerEdgeAlpha', 0);
+    cmap = colormap(gca);
+    cmin = min(lambda);
+    cmax = max(lambda);
+    if cmax <= cmin
+        cmax = cmin + eps;
+    end
+
+    for i = 1:numel(lambda)
+        c_idx = 1 + (size(cmap,1)-1) * (lambda(i)-cmin) / (cmax-cmin);
+        c_idx = min(size(cmap,1), max(1, round(c_idx)));
+        marker_char = '+';
+        if idx_lower(i)
+            marker_char = '-';
+        end
+        text(xN(i), yN(i), marker_char, 'Color', cmap(c_idx,:), ...
+            'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+            'FontWeight', 'bold', 'FontSize', style.axesFontSize + 2);
+    end
 
     cb = colorbar; cb.Label.String = '$\lambda$';
     cb.Label.Interpreter = 'latex';
