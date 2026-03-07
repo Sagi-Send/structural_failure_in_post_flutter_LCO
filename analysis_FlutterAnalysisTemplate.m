@@ -323,7 +323,10 @@ function plot_output(params, plot_data)
     % ---------------- lambda vs steady amp ----------------
     nexttile; hold on; grid off;
 
-    plot(lambda, A_steady/h, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+    plot(lambda, A_steady/h, '--o', ...
+        'LineWidth', style.lineWidth, ...
+        'MarkerSize', style.markerSize);
+
     set(gca,'FontSize',style.axesFontSize);
     xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
@@ -332,11 +335,39 @@ function plot_output(params, plot_data)
 
     % ---------------- max steady VM vs lambda ----------------
     nexttile; hold on; grid off;
-    plot(lambda, stress_cr_steady, '-o', 'LineWidth', style.lineWidth, 'MarkerSize', style.markerSize);
+
+    is_upper = logical(plot_data.max_vm_is_upper_steady);
+    is_lower = ~is_upper;
+
+    h_base = plot(lambda, stress_cr_steady, '--', ...
+        'LineWidth', style.lineWidth, ...
+        'HandleVisibility', 'off');
+    base_color = h_base.Color;
+
+    if any(is_upper)
+        plot(lambda(is_upper), stress_cr_steady(is_upper), '--o', ...
+            'LineStyle', 'none', ...
+            'MarkerSize', style.markerSize, ...
+            'LineWidth', style.lineWidth, ...
+            'MarkerEdgeColor', base_color, ...
+            'DisplayName', 'Upper surface');
+    end
+
+    if any(is_lower)
+        plot(lambda(is_lower), stress_cr_steady(is_lower), '--^', ...
+            'LineStyle', 'none', ...
+            'MarkerSize', style.markerSize, ...
+            'LineWidth', style.lineWidth, ...
+            'MarkerEdgeColor', base_color, ...
+            'DisplayName', 'Lower surface');
+    end
+
     set(gca,'FontSize',style.axesFontSize);
+    xlim([0, max(lambda)]);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\sigma_{cr}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\eta_{f}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
+    legend('Location','best','FontSize',style.axesFontSize);
 
     sgtitle('Steady window (last 20% of time marching)', ...
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
@@ -345,23 +376,15 @@ function plot_output(params, plot_data)
     tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
     % ---------------- location of steady max VM on the panel ----------------
-    nexttile; hold on; grid on;
+    nexttile; hold on; grid off;
 
     xN = plot_data.x_max_vm_steady./a;
     yN = plot_data.y_max_vm_steady./b;
-    is_upper = logical(plot_data.max_vm_is_upper_steady);
-    is_lower = ~is_upper;
 
-    if any(is_upper)
-        scatter(xN(is_upper), yN(is_upper), style.scatterSizeMedium, ...
-            lambda(is_upper), 'o', 'filled', 'DisplayName', 'Upper surface');
-    end
-    if any(is_lower)
-        scatter(xN(is_lower), yN(is_lower), style.scatterSizeMedium, ...
-            lambda(is_lower), '^', 'filled', 'DisplayName', 'Lower surface');
-    end
+    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
 
-    cb = colorbar; cb.Label.String = '$\lambda$';
+    cb = colorbar;
+    cb.Label.String = '$\lambda$';
     cb.Label.Interpreter = 'latex';
     cb.TickLabelInterpreter = 'latex';
     cb.Label.FontSize = style.labelFontSize;
@@ -371,16 +394,16 @@ function plot_output(params, plot_data)
     xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
     title('Steady stress hotspot','FontSize',style.titleFontSize);
-    
     xlim([0, 1]);
     ylim([-0.5, 0.5]);
     axis square
-    legend('Location','best');
 
     % ---------------- damping vs lambda ----------------
     nexttile; hold on; grid off;
 
-    scatter(lambda, damping_array, style.scatterSizeLarge, '.', 'MarkerEdgeAlpha', 1);
+    scatter(lambda, damping_array, style.scatterSizeLarge, '.', ...
+        'MarkerEdgeAlpha', 1);
+
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
