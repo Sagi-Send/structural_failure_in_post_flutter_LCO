@@ -1,6 +1,6 @@
 classdef FlutterAnalysisCache
     methods(Static)
-        function [cache_loaded, lambda_F, plot_data] = try_load(results_mat_file, params, force_resolve)
+        function [cache_loaded, lambda_F, plot_data] = try_load(results_mat_file, ~, force_resolve)
             cache_loaded = false;
             lambda_F = nan;
             plot_data = struct();
@@ -10,23 +10,17 @@ classdef FlutterAnalysisCache
             end
 
             vars_in_file = {whos('-file', results_mat_file).name};
+            if ~ismember('plot_data', vars_in_file)
+                return;
+            end
 
             if ismember('lambda_F', vars_in_file)
                 S_lambda = load(results_mat_file, 'lambda_F');
                 lambda_F = S_lambda.lambda_F;
             end
 
-            if ismember('plot_data', vars_in_file)
-                S_plot = load(results_mat_file, 'plot_data');
-                plot_data = S_plot.plot_data;
-            else
-                S = load(results_mat_file, ...
-                    'w_center', 'lco_amp', 'amp_steady', 'flutter_onset_idx', ...
-                    'damping_array', 'natural_frequencies_hz_array', ...
-                    'vm_upper', 'vm_lower', 'lambda_F');
-                plot_data = FlutterAnalysisCache.extract_plot_data(params, S);
-            end
-
+            S_plot = load(results_mat_file, 'plot_data');
+            plot_data = S_plot.plot_data;
             cache_loaded = true;
         end
 
@@ -53,8 +47,6 @@ classdef FlutterAnalysisCache
 
             if isfield(solve_data, 'amp_steady') && ~isempty(solve_data.amp_steady)
                 plot_data.A_steady = solve_data.amp_steady;
-            elseif isfield(solve_data, 'lco_amp') && ~isempty(solve_data.lco_amp)
-                plot_data.A_steady = solve_data.lco_amp;
             else
                 plot_data.A_steady = FlutterAnalysisCache.amplitude_from_window( ...
                     solve_data.w_center, idx_steady);

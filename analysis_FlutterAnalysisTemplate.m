@@ -349,13 +349,7 @@ function plot_output(params, plot_data)
 
     xN = plot_data.x_max_vm_steady./a;
     yN = plot_data.y_max_vm_steady./b;
-    if isfield(plot_data, 'max_vm_is_upper_steady')
-        is_upper = logical(plot_data.max_vm_is_upper_steady);
-    elseif isfield(plot_data, 'max_vm_surface_steady')
-        is_upper = strcmp(plot_data.max_vm_surface_steady, "upper");
-    else
-        is_upper = true(size(xN));
-    end
+    is_upper = logical(plot_data.max_vm_is_upper_steady);
     is_lower = ~is_upper;
 
     if any(is_upper)
