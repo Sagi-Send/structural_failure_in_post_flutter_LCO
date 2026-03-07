@@ -349,14 +349,14 @@ function plot_output(params, plot_data)
 
     xN = plot_data.x_max_vm_steady./a;
     yN = plot_data.y_max_vm_steady./b;
-    if isfield(plot_data, 'max_vm_surface_steady')
-        max_vm_surface = plot_data.max_vm_surface_steady;
+    if isfield(plot_data, 'max_vm_is_upper_steady')
+        is_upper = logical(plot_data.max_vm_is_upper_steady);
+    elseif isfield(plot_data, 'max_vm_surface_steady')
+        is_upper = strcmp(plot_data.max_vm_surface_steady, "upper");
     else
-        max_vm_surface = repmat("upper", size(xN));
+        is_upper = true(size(xN));
     end
-
-    is_upper = strcmp(max_vm_surface, "upper");
-    is_lower = strcmp(max_vm_surface, "lower");
+    is_lower = ~is_upper;
 
     if any(is_upper)
         scatter(xN(is_upper), yN(is_upper), style.scatterSizeMedium, ...

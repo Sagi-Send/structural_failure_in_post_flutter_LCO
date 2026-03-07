@@ -35,7 +35,7 @@ classdef FlutterAnalysisCache
             lambda_F = solve_data.lambda_F;
 
             save(results_mat_file, ...
-                'params', 'lambda_F', 'plot_data', '-v7.3');
+                'params', 'lambda_F', 'plot_data', '-v7');
         end
 
         function plot_data = extract_plot_data(params, solve_data)
@@ -66,20 +66,18 @@ classdef FlutterAnalysisCache
             plot_data.reduced_freq_array = ...
                 FlutterAnalysisCache.nondimentionalize(params, solve_data.natural_frequencies_hz_array);
 
-            vm_surf = cat(4, solve_data.vm_upper, solve_data.vm_lower);
-
             [plot_data.vm_max_steady, plot_data.x_max_vm_steady, ...
-                plot_data.y_max_vm_steady, plot_data.max_vm_surface_steady] = ...
+                plot_data.y_max_vm_steady, plot_data.max_vm_is_upper_steady] = ...
                 FlutterAnalysisCache.extract_vm_window_peak( ...
-                vm_surf, params, idx_steady);
+                solve_data.vm_upper, solve_data.vm_lower, params, idx_steady);
         end
 
-        function [vm_max, x_max, y_max, max_surface] = extract_vm_window_peak(vm_surf, params, idx_time)
-            vm_pt_time = squeeze(max(vm_surf(:, :, idx_time), [], 3));
-            [vm_max, idx_pt] = max(vm_pt_time, [], 2);
+        function [vm_max, x_max, y_max, max_is_upper] = extract_vm_window_peak(vm_upper, vm_lower, params, idx_time)
+            vm_upper_pt = squeeze(max(vm_upper(:, :, idx_time), [], 3));
+            vm_lower_pt = squeeze(max(vm_lower(:, :, idx_time), [], 3));
 
-            vm_upper_pt = squeeze(max(vm_surf(:, :, idx_time, 1), [], 3));
-            vm_lower_pt = squeeze(max(vm_surf(:, :, idx_time, 2), [], 3));
+            vm_pt_time = max(vm_upper_pt, vm_lower_pt);
+            [vm_max, idx_pt] = max(vm_pt_time, [], 2);
 
             x_lin = linspace(0, params.a, params.disc_stress);
             y_lin = linspace(-params.b/2, params.b/2, params.disc_stress);
@@ -90,11 +88,9 @@ classdef FlutterAnalysisCache
             x_max = x_points(idx_pt);
             y_max = y_points(idx_pt);
 
-            idx_linear = sub2ind(size(vm_upper_pt), (1:size(vm_upper_pt, 1)).', idx_pt);
-            is_upper = vm_upper_pt(idx_linear) >= vm_lower_pt(idx_linear);
-            max_surface = strings(size(vm_max));
-            max_surface(is_upper) = "upper";
-            max_surface(~is_upper) = "lower";
+            upper_ge_lower = vm_upper_pt >= vm_lower_pt;
+            idx_linear = sub2ind(size(upper_ge_lower), (1:size(upper_ge_lower, 1)).', idx_pt);
+            max_is_upper = upper_ge_lower(idx_linear);
         end
 
         function amp = amplitude_from_window(w_center, idx_window)
