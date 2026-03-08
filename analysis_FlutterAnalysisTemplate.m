@@ -377,12 +377,43 @@ figure('Color', style.figureColor, 'Position', style.figurePosition);
 tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
 % ---------------- location of steady max VM on the panel ----------------
-nexttile; hold on; grid on;
+nexttile; hold on; grid off;
 
 xN = plot_data.x_max_vm_steady./a;
 yN = plot_data.y_max_vm_steady./b;
+lambda_F = plot_data.lambda_F;
 
-scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+is_pre_flutter = lambda < lambda_F;
+is_post_flutter = ~is_pre_flutter;
+
+legend_handles = gobjects(0);
+
+if any(is_pre_flutter)
+    scatter(xN(is_pre_flutter), yN(is_pre_flutter), style.scatterSizeMedium, ...
+        lambda(is_pre_flutter), 'o', 'filled', ...
+        'HandleVisibility','off');
+    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+        'o', 'filled', ...
+        'MarkerFaceColor', [0.47 0.69 0.83], ...
+        'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'DisplayName', '$\lambda < \lambda_F$');
+end
+
+if any(is_post_flutter)
+    scatter(xN(is_post_flutter), yN(is_post_flutter), style.scatterSizeMedium, ...
+        lambda(is_post_flutter), '^', 'filled', ...
+        'HandleVisibility','off');
+    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+        '^', 'filled', ...
+        'MarkerFaceColor', [0.47 0.69 0.83], ...
+        'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'DisplayName', '$\lambda \geq \lambda_F$');
+end
+
+if ~isempty(legend_handles)
+    legend(legend_handles, 'Location','best', ...
+        'Interpreter','latex','FontSize',style.axesFontSize);
+end
 
 cb = colorbar; cb.Label.String = '$\lambda$';
 cb.Label.Interpreter = 'latex';
@@ -393,7 +424,6 @@ cb.FontSize = style.axesFontSize;
 set(gca,'FontSize',style.axesFontSize);
 xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
 ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-title('Steady stress hotspot','FontSize',style.titleFontSize);
 
 xlim([0, 1]);
 ylim([-0.5, 0.5]);
