@@ -425,7 +425,7 @@ end
 
 set(gca,'FontSize',style.axesFontSize);
 xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
-ylabel('$k_r$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
+ylabel('$k$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
 xlim([1000,1150]);  ylim([0.15,0.43]);
 axis square
 end
