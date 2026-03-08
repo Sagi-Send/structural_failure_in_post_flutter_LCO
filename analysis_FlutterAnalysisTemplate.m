@@ -298,6 +298,7 @@ function plot_output(params, plot_data)
     damping_array = plot_data.damping_array;
     vm_max_steady    = plot_data.vm_max_steady;
     stress_cr_steady    = vm_max_steady / params.sf_rel;
+    reduced_freq_array = plot_data.reduced_freq_array;
 
     % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
     figure('Color', style.figureColor, 'Position', style.figurePosition);
@@ -372,42 +373,61 @@ function plot_output(params, plot_data)
     sgtitle('Steady window (last 20% of time marching)', ...
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
-    figure('Color', style.figureColor, 'Position', style.figurePosition);
-    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+figure('Color', style.figureColor, 'Position', style.figurePosition);
+tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    % ---------------- location of steady max VM on the panel ----------------
-    nexttile; hold on; grid off;
+% ---------------- location of steady max VM on the panel ----------------
+nexttile; hold on; grid on;
 
-    xN = plot_data.x_max_vm_steady./a;
-    yN = plot_data.y_max_vm_steady./b;
+xN = plot_data.x_max_vm_steady./a;
+yN = plot_data.y_max_vm_steady./b;
 
-    scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
 
-    cb = colorbar;
-    cb.Label.String = '$\lambda$';
-    cb.Label.Interpreter = 'latex';
-    cb.TickLabelInterpreter = 'latex';
-    cb.Label.FontSize = style.labelFontSize;
-    cb.FontSize = style.axesFontSize;
+cb = colorbar; cb.Label.String = '$\lambda$';
+cb.Label.Interpreter = 'latex';
+cb.TickLabelInterpreter = 'latex';
+cb.Label.FontSize = style.labelFontSize;
+cb.FontSize = style.axesFontSize;
 
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-    title('Steady stress hotspot','FontSize',style.titleFontSize);
-    xlim([0, 1]);
-    ylim([-0.5, 0.5]);
-    axis square
+set(gca,'FontSize',style.axesFontSize);
+xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+title('Steady stress hotspot','FontSize',style.titleFontSize);
 
-    % ---------------- damping vs lambda ----------------
-    nexttile; hold on; grid off;
+xlim([0, 1]);
+ylim([-0.5, 0.5]);
+axis square
 
-    scatter(lambda, damping_array, style.scatterSizeLarge, '.', ...
+% prepare repeated lambda values for modal scatter plots
+lambda_grid = repmat(lambda, size(damping_array,1), 1);
+
+% ---------------- damping vs lambda ----------------
+nexttile; hold on; grid off;
+
+for j = 1:size(damping_array,1)
+    scatter(lambda, damping_array(j,:), style.scatterSizeLarge, '.', ...
         'MarkerEdgeAlpha', 1);
+end
 
-    set(gca,'FontSize',style.axesFontSize);
-    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
-    axis square
+set(gca,'FontSize',style.axesFontSize);
+xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
+axis square
+
+% ---------------- reduced frequency vs lambda ----------------
+nexttile; hold on; grid off;
+
+for j = 1:size(reduced_freq_array,1)
+    plot(lambda, reduced_freq_array(j,:), '-', ...
+        'LineWidth', style.lineWidth);
+end
+
+set(gca,'FontSize',style.axesFontSize);
+xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
+ylabel('$k_r$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
+xlim([1000,1150]);  ylim([0.15,0.43]);
+axis square
 end
 
 
