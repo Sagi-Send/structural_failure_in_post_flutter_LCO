@@ -377,23 +377,62 @@ figure('Color', style.figureColor, 'Position', style.figurePosition);
 tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
 % ---------------- location of steady max VM on the panel ----------------
-nexttile; hold on; grid on;
+nexttile; hold on; grid off;
 
 xN = plot_data.x_max_vm_steady./a;
 yN = plot_data.y_max_vm_steady./b;
+lambda_F = plot_data.lambda_F;
 
-scatter(xN, yN, style.scatterSizeMedium, lambda, 'filled');
+is_pre_flutter = lambda < lambda_F;
+is_post_flutter = ~is_pre_flutter;
+
+legend_handles = gobjects(0);
+
+if any(is_pre_flutter)
+    scatter(xN(is_pre_flutter), yN(is_pre_flutter), style.scatterSizeMedium, ...
+        lambda(is_pre_flutter), 'o', 'filled', ...
+        'HandleVisibility','off');
+    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+        'o', 'filled', ...
+        'MarkerFaceColor', [0.47 0.69 0.83], ...
+        'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'DisplayName', '$\lambda < \lambda_F$');
+end
+
+if any(is_post_flutter)
+    scatter(xN(is_post_flutter), yN(is_post_flutter), style.scatterSizeMedium, ...
+        lambda(is_post_flutter), '^', 'filled', ...
+        'HandleVisibility','off');
+    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+        '^', 'filled', ...
+        'MarkerFaceColor', [0.47 0.69 0.83], ...
+        'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'DisplayName', '$\lambda \geq \lambda_F$');
+end
+
+finite_lambda = isfinite(lambda);
+if any(finite_lambda)
+    lambda_for_max = lambda;
+    lambda_for_max(~finite_lambda) = -inf;
+    [~, idx_max_lambda] = max(lambda_for_max);
+    h_critical = scatter(xN(idx_max_lambda), yN(idx_max_lambda), style.scatterSizeMedium*2.5, ...
+        'o', 'MarkerFaceColor', 'none', 'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'LineWidth', style.lineWidth, 'DisplayName', 'Critical location');
+    legend_handles(end+1) = h_critical;
+end
+
+legend(legend_handles, 'Location','best', ...
+    'Interpreter','latex','FontSize',style.axesFontSize*0.6);
 
 cb = colorbar; cb.Label.String = '$\lambda$';
 cb.Label.Interpreter = 'latex';
 cb.TickLabelInterpreter = 'latex';
-cb.Label.FontSize = style.labelFontSize;
-cb.FontSize = style.axesFontSize;
+cb.Label.FontSize = style.labelFontSize*0.6;
+cb.FontSize = style.axesFontSize*0.6;
 
-set(gca,'FontSize',style.axesFontSize);
-xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
-ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-title('Steady stress hotspot','FontSize',style.titleFontSize);
+set(gca,'FontSize',style.axesFontSize*0.6);
+xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
+ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
 
 xlim([0, 1]);
 ylim([-0.5, 0.5]);
