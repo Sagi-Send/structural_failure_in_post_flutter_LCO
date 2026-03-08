@@ -410,20 +410,29 @@ if any(is_post_flutter)
         'DisplayName', '$\lambda \geq \lambda_F$');
 end
 
-if ~isempty(legend_handles)
-    legend(legend_handles, 'Location','best', ...
-        'Interpreter','latex','FontSize',style.axesFontSize);
+finite_lambda = isfinite(lambda);
+if any(finite_lambda)
+    lambda_for_max = lambda;
+    lambda_for_max(~finite_lambda) = -inf;
+    [~, idx_max_lambda] = max(lambda_for_max);
+    h_critical = scatter(xN(idx_max_lambda), yN(idx_max_lambda), style.scatterSizeMedium*2.5, ...
+        'o', 'MarkerFaceColor', 'none', 'MarkerEdgeColor', [0.47 0.69 0.83], ...
+        'LineWidth', style.lineWidth, 'DisplayName', 'Critical location');
+    legend_handles(end+1) = h_critical;
 end
+
+legend(legend_handles, 'Location','best', ...
+    'Interpreter','latex','FontSize',style.axesFontSize*0.6);
 
 cb = colorbar; cb.Label.String = '$\lambda$';
 cb.Label.Interpreter = 'latex';
 cb.TickLabelInterpreter = 'latex';
-cb.Label.FontSize = style.labelFontSize;
-cb.FontSize = style.axesFontSize;
+cb.Label.FontSize = style.labelFontSize*0.6;
+cb.FontSize = style.axesFontSize*0.6;
 
-set(gca,'FontSize',style.axesFontSize);
-xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
-ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+set(gca,'FontSize',style.axesFontSize*0.6);
+xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
+ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
 
 xlim([0, 1]);
 ylim([-0.5, 0.5]);
