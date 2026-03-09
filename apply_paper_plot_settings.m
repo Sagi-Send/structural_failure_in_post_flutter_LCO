@@ -1,7 +1,7 @@
 function style = apply_paper_plot_settings()
     style = struct();
 
-    % Global defaults for paper-ready, multi-panel readability.
+    % Global defaults for multi-panel readability.
     style.axesFontSize = 16;
     style.labelFontSize = 20;
     style.legendFontSize = 14;

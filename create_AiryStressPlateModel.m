@@ -15,7 +15,7 @@ m_s = h * rho_m;
 D = E * h^3 / (12 * (1-nu^2));
 
 
-% Numerical integration settings -----------------------------------------
+% Numerical integration settings
 integrationPoints = 200;
 xInterval         = linspace(0   ,a  , integrationPoints);
 yInterval         = linspace(-b/2,b/2, integrationPoints);
@@ -23,7 +23,7 @@ yInterval         = linspace(-b/2,b/2, integrationPoints);
 integrand         = zeros(integrationPoints, integrationPoints);
 
 
-% Mode ordering --------------------------------------------------------
+% Mode ordering
 modeOrder_w_x  = 1:8 ;  % chord-wise modes
 modeOrder_w_y  = 1:4 ;  % span-wise modes
 
@@ -65,40 +65,26 @@ for n = 1:NModes_w
     % EXAMPLE - the basis function
     psi_w{n}    = matlabFunction(psi_w_sym(n),'Vars',[x y]);
 
-    % EXAMPLE - and the first partial derivative of the basis function
-    %   w.r.t to x and y
-    %   note we use the diff() function BEFORE we transform the symbolic
-    %   variable
     psi_w_x{n}  = matlabFunction(diff(psi_w_sym(n),x,1),'Vars',[x y]);
     psi_w_y{n}  = matlabFunction(diff(psi_w_sym(n),y,1),'Vars',[x y]);
 
     psi_w_xx{n}  = matlabFunction(diff(psi_w_sym(n),x,2),'Vars',[x y]);
     psi_w_yy{n}  = matlabFunction(diff(psi_w_sym(n),y,2),'Vars',[x y]);
 
-
-
-    % TODO: implement the mixed derivative w.r.t to x and y
-    %       by applying the same idea (use diff TWICE)
-    % ---------- YOUR CODE HERE - START ----------
     psi_w_xy{n}  = matlabFunction(diff(diff(psi_w_sym(n),x,1),y,1),'Vars',[x y]);
-    % ---------- YOUR CODE HERE - END ----------
 
-
-    % TODO: implement the bi-harmonic operator \del^4 phi_n
+    % bi-harmonic operator \del^4 phi_n
     %    \del^4 psi_w_sym(n) = 
     %    psi_w_sym(n)_xxxx + 2 * psi_w_sym(n)_xxyy + psi_w_sym(n)_yyyy
-    % ---------- YOUR CODE HERE - START ----------
     % derive fourth order derivatives and biharmonic function
     psi_w_xxxx{n}  = matlabFunction(diff(psi_w_sym(n),x,4),'Vars',[x y]);
     psi_w_yyyy{n}  = matlabFunction(diff(psi_w_sym(n),y,4),'Vars',[x y]);
     psi_w_xxyy{n}  = matlabFunction(diff(diff(psi_w_sym(n),y,2),x,2),'Vars',[x y]);
     psi_w_bihar{n}  = @(x,y) psi_w_xxxx{n}(x,y) + 2 * psi_w_xxyy{n}(x,y) + psi_w_yyyy{n}(x,y);
-    % ---------- YOUR CODE HERE - END ----------
-
 end
 
 
-% evaluate shape functions at the mesh points ----------------------------
+% evaluate shape functions at the mesh points
 % initialize cell arrays
 psi_w_mesh        = repmat({zeros(size(xMesh))}, 1, NModes_w);
 psi_w_x_mesh      = repmat({zeros(size(xMesh))}, 1, NModes_w);

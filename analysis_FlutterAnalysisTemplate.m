@@ -15,7 +15,6 @@ create_AiryStressPlateModel
 %% Analysis setup
 params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D);
 
-% add what VM needs (keep minimal: just store constants already in workspace)
 params.h  = h;
 params.nu = nu;
 params.D  = D;
@@ -55,13 +54,7 @@ else
     fprintf('No flutter detected in the scanned range.\n');
 end
 
-plot_output(params, plot_data);
-
-% vm_upper / vm_lower are available for post-processing
-% e.g., max over time and surfaces:
-% vm_max = squeeze(max(cat(4, vm_upper, vm_lower), [], 4)); % [n_pressures x nPts x Nt]
-% vm_max_over_time = squeeze(max(vm_max, [], 3));           % [n_pressures x nPts]
-
+plot_output(params, plot_data, psi_w, xMesh, yMesh);
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.a = a;   params.b = b;
@@ -268,7 +261,7 @@ function Psi = build_shape_matrix(psi_cell, x_points, y_points)
     end
 end
 
-% Estimate displacement amplitude from a selected [startFrac, endFrac] window.
+% estimate displacement amplitude from a selected [startFrac, endFrac] window.
 function amp = estimate_window_amplitude(t, w, frac_window)
     idx_window = select_time_window_indices(t, frac_window(1), frac_window(2));
     w_window = w(idx_window);
@@ -283,7 +276,7 @@ function idx_window = select_time_window_indices(t, startFrac, endFrac)
 end
 
 
-function plot_output(params, plot_data)
+function plot_output(params, plot_data, psi_w, xMesh, yMesh)
 
     style = apply_paper_plot_settings();
 
@@ -300,7 +293,7 @@ function plot_output(params, plot_data)
     stress_cr_steady    = vm_max_steady / params.sf_rel;
     reduced_freq_array = plot_data.reduced_freq_array;
 
-    % ---------------- w_center(t)/h for selected lambdas in a separate window ----------------
+    %% Amp. w_center(t)/h for selected lambdas
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     tiledlayout(2,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
@@ -321,7 +314,7 @@ function plot_output(params, plot_data)
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
 
-    % ---------------- lambda vs steady amp ----------------
+    %% Lambda vs steady amp
     nexttile; hold on; grid off;
 
     plot(lambda, A_steady/h, '--o', ...
@@ -334,7 +327,7 @@ function plot_output(params, plot_data)
     ylabel('$(w_{center}/h)_{amp}^{steady}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
 
-    % ---------------- max steady VM vs lambda ----------------
+    %% Max steady VM vs lambda
     nexttile; hold on; grid off;
 
     is_upper = logical(plot_data.max_vm_is_upper_steady);
@@ -363,8 +356,33 @@ function plot_output(params, plot_data)
             'DisplayName', 'Lower surface');
     end
 
+    y_target = 1;
+    lambda_at_target = nan;
+    exact_idx = find(stress_cr_steady == y_target, 1, 'first');
+    if ~isempty(exact_idx)
+        lambda_at_target = lambda(exact_idx);
+    else
+        y_shift = stress_cr_steady - y_target;
+        cross_idx = find(y_shift(1:end-1).*y_shift(2:end) <= 0, 1, 'first');
+        if ~isempty(cross_idx)
+            lambda_at_target = interp1( ...
+                stress_cr_steady(cross_idx:cross_idx+1), ...
+                lambda(cross_idx:cross_idx+1), y_target, 'linear');
+        end
+    end
+
+    if ~isnan(lambda_at_target)
+        plot(lambda_at_target, y_target, 'o', ...
+            'MarkerSize', style.markerSize*1.8, ...
+            'MarkerFaceColor', 'none', ...
+            'MarkerEdgeColor', 'k', ...
+            'LineWidth', style.lineWidth, ...
+            'DisplayName', 'Critical point');
+    end
+
     set(gca,'FontSize',style.axesFontSize);
     xlim([0, max(lambda)]);
+    ylim([0, max(stress_cr_steady)*1.05])
     xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$\eta_{f}$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
@@ -373,100 +391,137 @@ function plot_output(params, plot_data)
     sgtitle('Steady window (last 20% of time marching)', ...
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
-figure('Color', style.figureColor, 'Position', style.figurePosition);
-tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-
-% ---------------- location of steady max VM on the panel ----------------
-nexttile; hold on; grid off;
-
-xN = plot_data.x_max_vm_steady./a;
-yN = plot_data.y_max_vm_steady./b;
-lambda_F = plot_data.lambda_F;
-
-is_pre_flutter = lambda < lambda_F;
-is_post_flutter = ~is_pre_flutter;
-
-legend_handles = gobjects(0);
-
-if any(is_pre_flutter)
-    scatter(xN(is_pre_flutter), yN(is_pre_flutter), style.scatterSizeMedium, ...
-        lambda(is_pre_flutter), 'o', 'filled', ...
-        'HandleVisibility','off');
-    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
-        'o', 'filled', ...
-        'MarkerFaceColor', [0.47 0.69 0.83], ...
-        'MarkerEdgeColor', [0.47 0.69 0.83], ...
-        'DisplayName', '$\lambda < \lambda_F$');
-end
-
-if any(is_post_flutter)
-    scatter(xN(is_post_flutter), yN(is_post_flutter), style.scatterSizeMedium, ...
-        lambda(is_post_flutter), '^', 'filled', ...
-        'HandleVisibility','off');
-    legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
-        '^', 'filled', ...
-        'MarkerFaceColor', [0.47 0.69 0.83], ...
-        'MarkerEdgeColor', [0.47 0.69 0.83], ...
-        'DisplayName', '$\lambda \geq \lambda_F$');
-end
-
-finite_lambda = isfinite(lambda);
-if any(finite_lambda)
-    lambda_for_max = lambda;
-    lambda_for_max(~finite_lambda) = -inf;
-    [~, idx_max_lambda] = max(lambda_for_max);
-    h_critical = scatter(xN(idx_max_lambda), yN(idx_max_lambda), style.scatterSizeMedium*2.5, ...
-        'o', 'MarkerFaceColor', 'none', 'MarkerEdgeColor', [0.47 0.69 0.83], ...
-        'LineWidth', style.lineWidth, 'DisplayName', 'Critical location');
-    legend_handles(end+1) = h_critical;
-end
-
-legend(legend_handles, 'Location','best', ...
-    'Interpreter','latex','FontSize',style.axesFontSize*0.6);
-
-cb = colorbar; cb.Label.String = '$\lambda$';
-cb.Label.Interpreter = 'latex';
-cb.TickLabelInterpreter = 'latex';
-cb.Label.FontSize = style.labelFontSize*0.6;
-cb.FontSize = style.axesFontSize*0.6;
-
-set(gca,'FontSize',style.axesFontSize*0.6);
-xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
-ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
-
-xlim([0, 1]);
-ylim([-0.5, 0.5]);
-axis square
-
-% prepare repeated lambda values for modal scatter plots
-lambda_grid = repmat(lambda, size(damping_array,1), 1);
-
-% ---------------- damping vs lambda ----------------
-nexttile; hold on; grid off;
-
-for j = 1:size(damping_array,1)
-    scatter(lambda, damping_array(j,:), style.scatterSizeLarge, '.', ...
-        'MarkerEdgeAlpha', 1);
-end
-
-set(gca,'FontSize',style.axesFontSize);
-xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
-ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
-axis square
-
-% ---------------- reduced frequency vs lambda ----------------
-nexttile; hold on; grid off;
-
-for j = 1:size(reduced_freq_array,1)
-    plot(lambda, reduced_freq_array(j,:), '-', ...
-        'LineWidth', style.lineWidth);
-end
-
-set(gca,'FontSize',style.axesFontSize);
-xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
-ylabel('$k$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
-xlim([1000,1150]);  ylim([0.15,0.43]);
-axis square
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(1,3,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    
+    %% Location of steady max VM on the panel
+    nexttile; hold on; grid off;
+    
+    xN = plot_data.x_max_vm_steady./a;
+    yN = plot_data.y_max_vm_steady./b;
+    lambda_F = plot_data.lambda_F;
+    
+    is_pre_flutter = lambda < lambda_F;
+    is_post_flutter = ~is_pre_flutter;
+    
+    legend_handles = gobjects(0);
+    
+    if any(is_pre_flutter)
+        scatter(xN(is_pre_flutter), yN(is_pre_flutter), style.scatterSizeMedium, ...
+            lambda(is_pre_flutter), 'o', 'filled', ...
+            'HandleVisibility','off');
+        legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+            'o', 'filled', ...
+            'MarkerFaceColor', [0.47 0.69 0.83], ...
+            'MarkerEdgeColor', [0.47 0.69 0.83], ...
+            'DisplayName', '$\lambda < \lambda_F$');
+    end
+    
+    if any(is_post_flutter)
+        scatter(xN(is_post_flutter), yN(is_post_flutter), style.scatterSizeMedium, ...
+            lambda(is_post_flutter), '^', 'filled', ...
+            'HandleVisibility','off');
+        legend_handles(end+1) = scatter(nan, nan, style.scatterSizeMedium, ...
+            '^', 'filled', ...
+            'MarkerFaceColor', [0.47 0.69 0.83], ...
+            'MarkerEdgeColor', [0.47 0.69 0.83], ...
+            'DisplayName', '$\lambda \geq \lambda_F$');
+    end
+    
+    finite_lambda = isfinite(lambda);
+    if any(finite_lambda)
+        lambda_for_max = lambda;
+        lambda_for_max(~finite_lambda) = -inf;
+        [~, idx_max_lambda] = max(lambda_for_max);
+        h_critical = scatter(xN(idx_max_lambda), yN(idx_max_lambda), style.scatterSizeMedium*2.5, ...
+            'o', 'MarkerFaceColor', 'none', 'MarkerEdgeColor', [0.47 0.69 0.83], ...
+            'LineWidth', style.lineWidth, 'DisplayName', 'Critical location');
+        legend_handles(end+1) = h_critical;
+    end
+    
+    legend(legend_handles, 'Location','best', ...
+        'Interpreter','latex','FontSize',style.axesFontSize*0.6);
+    
+    cb = colorbar; cb.Label.String = '$\lambda$';
+    cb.Label.Interpreter = 'latex';
+    cb.TickLabelInterpreter = 'latex';
+    cb.Label.FontSize = style.labelFontSize*0.6;
+    cb.FontSize = style.axesFontSize*0.6;
+    
+    set(gca,'FontSize',style.axesFontSize*0.6);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize*0.6);
+    
+    xlim([0, 1]);
+    ylim([-0.5, 0.5]);
+    axis square
+    
+    % prepare repeated lambda values for modal scatter plots
+    lambda_grid = repmat(lambda, size(damping_array,1), 1);
+    
+    %% Damping vs lambda
+    nexttile; hold on; grid off;
+    
+    for j = 1:size(damping_array,1)
+        scatter(lambda, damping_array(j,:), style.scatterSizeLarge, '.', ...
+            'MarkerEdgeAlpha', 1);
+    end
+    
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$\zeta$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+    
+    %% Reduced frequency vs lambda
+    nexttile; hold on; grid off;
+    
+    for j = 1:size(reduced_freq_array,1)
+        plot(lambda, reduced_freq_array(j,:), '-', ...
+            'LineWidth', style.lineWidth);
+    end
+    
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$\lambda$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
+    ylabel('$k$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
+    xlim([1000,1150]);  ylim([0.15,0.43]);
+    axis square
+    
+    %% First two mode shapes
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
+    
+    mode_1 = psi_w{1}(xMesh, yMesh);
+    mode_2 = psi_w{2}(xMesh, yMesh);
+    mode_1 = mode_1 ./ max(abs(mode_1(:)));
+    mode_2 = mode_2 ./ max(abs(mode_2(:)));
+    
+    nexttile; hold on; grid off;
+    contourf(xMesh./a, yMesh./b, mode_1, 20, 'LineStyle', 'none');
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+    cb_mode1 = colorbar;
+    cb_mode1.Label.String = '$\hat{\phi}$';
+    cb_mode1.Label.Interpreter = 'latex';
+    cb_mode1.TickLabelInterpreter = 'latex';
+    cb_mode1.Label.FontSize = style.labelFontSize*2;
+    cb_mode1.FontSize = style.axesFontSize;
+    clim([-1,1]);
+    
+    nexttile; hold on; grid off;
+    contourf(xMesh./a, yMesh./b, mode_2, 20, 'LineStyle', 'none');
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    axis square
+    cb_mode2 = colorbar;
+    cb_mode2.Label.String = '$\hat{\phi}$';
+    cb_mode2.Label.Interpreter = 'latex';
+    cb_mode2.TickLabelInterpreter = 'latex';
+    cb_mode2.Label.FontSize = style.labelFontSize*2;
+    cb_mode2.FontSize = style.axesFontSize;
+    clim([-1,1]);
 end
 
 
