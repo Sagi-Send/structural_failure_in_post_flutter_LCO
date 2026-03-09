@@ -54,6 +54,11 @@ else
     fprintf('No flutter detected in the scanned range.\n');
 end
 
+[mode_1_lowest, mode_2_lowest] = compute_lowest_frequency_modes( ...
+    struct_mat_Minv, struct_mat_K, psi_w, xMesh, yMesh);
+plot_data.mode_shape_1 = mode_1_lowest;
+plot_data.mode_shape_2 = mode_2_lowest;
+
 plot_output(params, plot_data, psi_w, xMesh, yMesh);
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
@@ -489,12 +494,10 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     %% First two mode shapes
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
-    
-    mode_1 = psi_w{1}(xMesh, yMesh);
-    mode_2 = psi_w{2}(xMesh, yMesh);
-    mode_1 = mode_1 ./ max(abs(mode_1(:)));
-    mode_2 = mode_2 ./ max(abs(mode_2(:)));
-    
+
+    mode_1 = plot_data.mode_shape_1;
+    mode_2 = plot_data.mode_shape_2;
+
     nexttile; hold on; grid off;
     contourf(xMesh./a, yMesh./b, mode_1, 20, 'LineStyle', 'none');
     set(gca,'FontSize',style.axesFontSize);
@@ -524,6 +527,44 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     clim([-1,1]);
 end
 
+
+function [mode_1, mode_2] = compute_lowest_frequency_modes( ...
+    struct_mat_Minv, struct_mat_K, psi_w, xMesh, yMesh)
+
+    A_dry = struct_mat_Minv * struct_mat_K;
+    [V_dry, D_dry] = eig(A_dry);
+    omega_sq = real(diag(D_dry));
+
+    valid_idx = find(isfinite(omega_sq) & (omega_sq > 0));
+
+    [~, rel_order] = sort(omega_sq(valid_idx), 'ascend');
+    idx_mode1 = valid_idx(rel_order(1));
+    idx_mode2 = valid_idx(rel_order(2));
+
+    q1 = V_dry(:, idx_mode1);
+    [~, i_ref_1] = max(abs(q1));
+    q1 = q1 * exp(-1i*angle(q1(i_ref_1)));
+
+    q2 = V_dry(:, idx_mode2);
+    [~, i_ref_2] = max(abs(q2));
+    q2 = q2 * exp(-1i*angle(q2(i_ref_2)));
+
+    mode_1 = zeros(size(xMesh));
+    mode_2 = zeros(size(xMesh));
+    for n = 1:numel(psi_w)
+        mode_1 = mode_1 + q1(n) * psi_w{n}(xMesh, yMesh);
+        mode_2 = mode_2 + q2(n) * psi_w{n}(xMesh, yMesh);
+    end
+
+    mode_1 = real(mode_1);
+    mode_2 = real(mode_2);
+
+    max_abs_1 = max(abs(mode_1(:)));
+    max_abs_2 = max(abs(mode_2(:)));
+
+    mode_1 = mode_1 / max_abs_1;
+    mode_2 = mode_2 / max_abs_2;
+end
 
 function define_parallel_processing()
     p = gcp('nocreate');
