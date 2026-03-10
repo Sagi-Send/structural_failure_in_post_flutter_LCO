@@ -4,9 +4,19 @@ close all;
 
 define_parallel_processing();
 
-%% Caching controls
-results_mat_file = 'flutter_analysis_cache.mat';
+%% Solver mode + caching controls
 force_resolve = false;
+use_nonlinear_solution = request_nonlinear_solution();
+
+if use_nonlinear_solution
+    results_mat_file = 'flutter_analysis_cache.mat';
+    solution_label = 'Nonlinear';
+else
+    results_mat_file = 'flutter_analysis_cache_linear.mat';
+    solution_label = 'Linear';
+end
+fprintf('%s geometry mode selected. Cache file: %s\n', ...
+    solution_label, results_mat_file);
 
 %% Build structural model
 % Geometry and material parameters are defined inside this script.
@@ -18,6 +28,8 @@ params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D);
 params.h  = h;
 params.nu = nu;
 params.D  = D;
+params.include_nonlinearity = use_nonlinear_solution;
+params.solution_label = solution_label;
 
 %% Pressure sweep (or load cached results)
 [cache_loaded, lambda_F, plot_data] = FlutterAnalysisCache.try_load( ...
@@ -113,6 +125,7 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
     q_qdot_ics = params.q_qdot_ics;
     T0         = params.T0;
     steady_frac = params.steady_frac;
+    include_nonlinearity = params.include_nonlinearity;
 
     % Stress evaluation grid (disc_stress x disc_stress)
     x_lin = linspace(0, a, params.disc_stress);
@@ -161,7 +174,7 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
 
         rhs_local = @(t, y) rhs_func_aero( ...
             t, y, NModes_w, struct_mat_Minv, struct_mat_K, struct_mat_L2, ...
-            struct_mat_Aw, struct_mat_Awdot);
+            struct_mat_Aw, struct_mat_Awdot, include_nonlinearity);
 
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
         Q = w_modal(:, 1:NModes_w); % [Nt x NModes_w]
@@ -297,6 +310,7 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     vm_max_steady    = plot_data.vm_max_steady;
     stress_cr_steady    = vm_max_steady / params.sf_rel;
     reduced_freq_array = plot_data.reduced_freq_array;
+    solution_label = params.solution_label;
 
     %% Amp. w_center(t)/h for selected lambdas
     figure('Color', style.figureColor, 'Position', style.figurePosition);
@@ -315,6 +329,9 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
         xlim([0, 0.115*t_eval(end)]);
         axis square
     end
+
+    sgtitle(sprintf('%s geometry solution', solution_label), ...
+        'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     tiledlayout(1,2,'TileSpacing',style.tileSpacing,'Padding',style.tilePadding);
@@ -393,7 +410,8 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     axis square
     legend('Location','best','FontSize',style.axesFontSize);
 
-    sgtitle('Steady window (last 20% of time marching)', ...
+        sgtitle(sprintf('%s geometry solution: steady window (last 20%% of time marching)', ...
+        solution_label), ...
         'FontSize', style.titleFontSize, 'FontWeight', 'normal');
 
     figure('Color', style.figureColor, 'Position', style.figurePosition);
@@ -566,9 +584,30 @@ function [mode_1, mode_2] = compute_lowest_frequency_modes( ...
     mode_2 = mode_2 / max_abs_2;
 end
 
+function use_nonlinear_solution = request_nonlinear_solution()
+    answer = input(['Activate nonlinear geometry? ', ...
+        '1 (yes) or 0 (no): ']);
+
+    if isempty(answer) || ~isscalar(answer) || ~ismember(answer, [0, 1])
+        error('Invalid selection. Enter 1 for nonlinear or 0 for linear.');
+    end
+
+    use_nonlinear_solution = logical(answer);
+end
+
 function define_parallel_processing()
     p = gcp('nocreate');
     if isempty(p)
         parpool('IdleTimeout', Inf);
     end
 end
+
+
+
+
+
+
+
+
+
+

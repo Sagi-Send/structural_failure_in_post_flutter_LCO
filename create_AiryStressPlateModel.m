@@ -24,7 +24,7 @@ integrand         = zeros(integrationPoints, integrationPoints);
 
 
 % Mode ordering
-modeOrder_w_x  = 1:8 ;  % chord-wise modes
+modeOrder_w_x  = 1:4 ;  % chord-wise modes
 modeOrder_w_y  = 1:4 ;  % span-wise modes
 
 % now collect them in pairs
