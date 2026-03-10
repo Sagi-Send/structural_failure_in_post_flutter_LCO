@@ -117,10 +117,6 @@ end
 % you have to implement struct_mat_A_not_scaled, struct_mat_B_not_scaled
 % and struct_mat_Q_not_scaled
 
-% EXAMPLE - calculate the mass matrix
-%           NOTE that it is NOT SCALED by material properties
-%           we do this to be able to avoid recalculating it when 
-%           varying material, thickness, or other parameters
 % M_ni ------------------------------------------------------------------
 struct_mat_M_not_scaled = zeros(NModes_w, NModes_w); % always initialize first
 for n = 1:NModes_w
@@ -156,14 +152,11 @@ for n = 1:NModes_w
 end
 
 % A_ns ------------------------------------------------------------------
-% TODO: implement the calculation of struct_mat_A_not_scaled(n,s)
 struct_mat_A_not_scaled = zeros(NModes_w, NModes_w);
 for n = 1:NModes_w
     for s = 1:NModes_w
-        % ---------- YOUR CODE HERE - START ----------
         integrand =  psi_w_mesh{n} .* psi_w_bihar_mesh{s};
         struct_mat_A_not_scaled(n,s) = trapz(yInterval, trapz(xInterval, integrand, 2));
-        % ---------- YOUR CODE HERE - END ----------
         
     end
 end
@@ -175,28 +168,20 @@ struct_mat_B_not_scaled = zeros(NModes_w, NModes_w, NModes_w);
 for n = 1:NModes_w
     for i = 1:NModes_w
         for k = 1:NModes_w
-            % ---------- YOUR CODE HERE - START ----------
             integrand  =  psi_w_mesh{n} .* ( ...
                 psi_w_xy_mesh{i} .* psi_w_xy_mesh{k} - psi_w_xx_mesh{i} .* psi_w_yy_mesh{k});
             struct_mat_B_not_scaled(n,i,k) = trapz(yInterval, trapz(xInterval, integrand, 2));
-            % ---------- YOUR CODE HERE - END ----------
-
         end
     end
 end
 
 
 % Q_n ------------------------------------------------------------------
-% TODO: implement the calculation of struct_mat_Q_not_scaled(n)
-% calculate Q_not_scaled - it's a vector, not a matrix/tensor!
 static_pressure_distribution = ones(size(xMesh)); % the distribution of external load - uniform
 struct_mat_Q_not_scaled = zeros(NModes_w,1);
 for n = 1:NModes_w
-    % ---------- YOUR CODE HERE - START ----------
     integrand  =  static_pressure_distribution .* psi_w_mesh{n};
     struct_mat_Q_not_scaled(n) = trapz(yInterval, trapz(xInterval, integrand, 2));
-    % ---------- YOUR CODE HERE - END ----------
-
 end
 
 
@@ -220,23 +205,14 @@ struct_mat_A = struct_mat_A_not_scaled  / E / h;
 struct_mat_B = struct_mat_B_not_scaled;
 struct_mat_L = struct_mat_L_not_scaled;
 
-% useful definitions - will be used in ODE solution
 struct_mat_Minv = inv(struct_mat_M);
 
 
 % ------------------------------------------------------------------
 %% Solve the algebraic problem for the in-plane equilibrium equations
-% TODO: use the solution shown in class
-%       use tensorprod(A,B,DIMA,DIMB) to do the tensor product
-%       and obtain the L2 tensor
-%       a partial solution is given in this part
-
-
-% ---------- YOUR CODE HERE - START ----------
 struct_mat_A_inv = inv(struct_mat_A);
 struct_mat_B2    = tensorprod(struct_mat_A_inv,struct_mat_B,2,1);
 struct_mat_L2    = tensorprod(struct_mat_L,struct_mat_B2, 3, 1);
-% ---------- YOUR CODE HERE - END ----------
 
 
 % Aw_ni ------------------------------------------------------------------

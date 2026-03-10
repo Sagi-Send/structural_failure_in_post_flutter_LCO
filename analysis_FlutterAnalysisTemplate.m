@@ -166,7 +166,7 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
         [~, w_modal] = ode45(rhs_local, t_eval, q_qdot_ics);
         Q = w_modal(:, 1:NModes_w); % [Nt x NModes_w]
 
-        % deflection at all points for this pressure (vectorized)
+        % vectorized deflection at all points for this pressure
         w_i_local = modal2physical(Q, Psi_w).';
 
         % store full-field + center trace
@@ -174,7 +174,8 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
-        amp_steady(idx)    = estimate_window_amplitude(t_eval, w_center_local, [1-steady_frac, 1.0]);
+        amp_steady(idx) = estimate_window_amplitude...
+            (t_eval, w_center_local, [1-steady_frac, 1.0]);
 
         % VM stresses on upper/lower surfaces at all points and all times
         [vmU_local, vmL_local] = von_mises( ...
@@ -187,9 +188,8 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
         struct_mat_C       = struct_mat_Awdot;
 
         [natural_frequencies_hz_array(:, idx), damping_array(:, idx), ...
-            max_real_eig(idx), omega_scale] = ...
-            solve_coupled_eigensystem(struct_mat_Minv, struct_mat_K_total, ...
-                                      struct_mat_C, NModes_w);
+            max_real_eig(idx), omega_scale] = solve_coupled_eigensystem...
+            (struct_mat_Minv, struct_mat_K_total, struct_mat_C, NModes_w);
 
         unstable(idx) = max_real_eig(idx) > (omega_scale * tol);
         send(dq, 1);
