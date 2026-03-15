@@ -281,13 +281,12 @@ function idx_window = select_time_window_indices(t, startFrac, endFrac)
 end
 
 
-function plot_output(params, plot_data, psi_w, xMesh, yMesh)
+function plot_output(params, plot_data, ~, xMesh, yMesh)
 
     style = apply_paper_plot_settings();
 
     lambda = plot_data.lambda;
     t_eval = plot_data.t_eval;
-    pinf   = plot_data.pinf;
     a      = plot_data.a;
     b      = plot_data.b;
     h      = plot_data.h;
@@ -461,9 +460,6 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     ylim([-0.5, 0.5]);
     axis square
     
-    % prepare repeated lambda values for modal scatter plots
-    lambda_grid = repmat(lambda, size(damping_array,1), 1);
-    
     %% Damping vs lambda
     nexttile; hold on; grid off;
     
@@ -490,6 +486,38 @@ function plot_output(params, plot_data, psi_w, xMesh, yMesh)
     ylabel('$k$','Interpreter','latex','FontSize',style.labelFontSize*1.5);
     xlim([1000,1150]);  ylim([0.15,0.43]);
     axis square
+
+    %% Transverse displacements at yield
+    figure('Color', style.figureColor, 'Position', style.figurePosition);
+    hold on; grid off;
+
+    x_yield = linspace(0, a, params.disc_stress);
+    y_yield = linspace(-b/2, b/2, params.disc_stress);
+    [xYieldMesh, yYieldMesh] = meshgrid(x_yield, y_yield);
+    yield_wh = plot_data.yield_deformation_wh;
+    yield_min = min(yield_wh(:));
+    yield_max = max(yield_wh(:));
+    if yield_max <= yield_min
+        delta = max(1, abs(yield_min)) * 1e-6;
+        yield_min = yield_min - delta;
+        yield_max = yield_max + delta;
+    end
+    contour_levels = linspace(yield_min, yield_max, 200);
+    contourf(xYieldMesh./a, yYieldMesh./b, yield_wh, ...
+        contour_levels, ...
+        'LineStyle', 'none');
+
+    set(gca,'FontSize',style.axesFontSize);
+    xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
+    ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
+    clim([yield_min, yield_max]);
+
+    cb_failure = colorbar;
+    cb_failure.Label.String = '$w/h$';
+    cb_failure.Label.Interpreter = 'latex';
+    cb_failure.TickLabelInterpreter = 'latex';
+    cb_failure.Label.FontSize = style.labelFontSize*2;
+    cb_failure.FontSize = style.axesFontSize;
     
     %% First two mode shapes
     figure('Color', style.figureColor, 'Position', style.figurePosition);

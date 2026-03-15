@@ -4,6 +4,7 @@ classdef FlutterAnalysisCache
             cache_loaded = false;
             lambda_F = nan;
             plot_data = struct();
+            cache_format_version = 2;
 
             if force_resolve || ~isfile(results_mat_file)
                 return;
@@ -21,6 +22,12 @@ classdef FlutterAnalysisCache
 
             S_plot = load(results_mat_file, 'plot_data');
             plot_data = S_plot.plot_data;
+            if ~isfield(plot_data, 'cache_format_version') || ...
+                    plot_data.cache_format_version ~= cache_format_version || ...
+                    ~isfield(plot_data, 'yield_deformation_wh')
+                plot_data = struct();
+                return;
+            end
             cache_loaded = true;
         end
 
@@ -33,6 +40,7 @@ classdef FlutterAnalysisCache
         end
 
         function plot_data = extract_plot_data(params, solve_data)
+            plot_data.cache_format_version = 2;
             plot_data.lambda = params.lambda;
             plot_data.t_eval = params.t_eval;
             plot_data.pinf = params.pinf_sweep;
@@ -62,6 +70,11 @@ classdef FlutterAnalysisCache
                 plot_data.y_max_vm_steady, plot_data.max_vm_is_upper_steady] = ...
                 FlutterAnalysisCache.extract_vm_window_peak( ...
                 solve_data.vm_upper, solve_data.vm_lower, params, idx_steady);
+
+            [plot_data.yield_deformation_wh, plot_data.yield_time, ...
+                plot_data.yield_lambda] = FlutterAnalysisCache.extract_yield_deformation( ...
+                solve_data.w_i, solve_data.vm_upper, solve_data.vm_lower, ...
+                params, idx_steady);
         end
 
         function [vm_max, x_max, y_max, max_is_upper] = extract_vm_window_peak(vm_upper, vm_lower, params, idx_time)
@@ -88,6 +101,28 @@ classdef FlutterAnalysisCache
         function amp = amplitude_from_window(w_center, idx_window)
             w_win = w_center(:, idx_window);
             amp = 0.5*(max(w_win, [], 2) - min(w_win, [], 2)).';
+        end
+
+        function [yield_deformation_wh, yield_time, yield_lambda] = extract_yield_deformation( ...
+                w_i, vm_upper, vm_lower, params, idx_time)
+            vm_all = max(vm_upper(:, :, idx_time), vm_lower(:, :, idx_time));
+            vm_panel_time = squeeze(max(vm_all, [], 2));
+            eta_panel_time = vm_panel_time ./ params.sf_rel;
+
+            idx_pressure = find(any(eta_panel_time >= 1, 2), 1, 'first');
+            if isempty(idx_pressure)
+                [~, idx_linear] = max(eta_panel_time(:));
+                [idx_pressure, idx_local_time] = ind2sub(size(eta_panel_time), idx_linear);
+            else
+                idx_local_time = find(eta_panel_time(idx_pressure, :) >= 1, 1, 'first');
+            end
+
+            idx_global_time = idx_time(idx_local_time);
+            yield_vector = squeeze(w_i(idx_pressure, :, idx_global_time));
+            yield_shape = reshape(yield_vector, params.disc_stress, params.disc_stress);
+            yield_deformation_wh = yield_shape ./ params.h;
+            yield_time = params.t_eval(idx_global_time);
+            yield_lambda = params.lambda(idx_pressure);
         end
 
         function idx_window = select_time_window_indices(Nt, startFrac, endFrac)
