@@ -58,10 +58,6 @@ end
     struct_mat_Minv, struct_mat_K, psi_w, xMesh, yMesh);
 plot_data.mode_shape_1 = mode_1_lowest;
 plot_data.mode_shape_2 = mode_2_lowest;
-plot_data = add_failure_mode_from_cache( ...
-    plot_data, params, struct_mat_Minv, struct_mat_K, ...
-    struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, ...
-    NModes_w, psi_w, xMesh, yMesh);
 
 plot_output(params, plot_data, psi_w, xMesh, yMesh);
 
@@ -491,21 +487,33 @@ function plot_output(params, plot_data, ~, xMesh, yMesh)
     xlim([1000,1150]);  ylim([0.15,0.43]);
     axis square
 
-    %% Failure mode reconstructed from cached results
+    %% Transverse displacements at yield
     figure('Color', style.figureColor, 'Position', style.figurePosition);
     hold on; grid off;
 
-    contour_levels = linspace(-1, 0, 100);
-    contourf(xMesh./a, yMesh./b, plot_data.failure_mode_shape, contour_levels, ...
+    x_yield = linspace(0, a, params.disc_stress);
+    y_yield = linspace(-b/2, b/2, params.disc_stress);
+    [xYieldMesh, yYieldMesh] = meshgrid(x_yield, y_yield);
+    yield_wh = plot_data.yield_deformation_wh;
+    yield_min = min(yield_wh(:));
+    yield_max = max(yield_wh(:));
+    if yield_max <= yield_min
+        delta = max(1, abs(yield_min)) * 1e-6;
+        yield_min = yield_min - delta;
+        yield_max = yield_max + delta;
+    end
+    contour_levels = linspace(yield_min, yield_max, 200);
+    contourf(xYieldMesh./a, yYieldMesh./b, yield_wh, ...
+        contour_levels, ...
         'LineStyle', 'none');
 
     set(gca,'FontSize',style.axesFontSize);
     xlabel('$x/a$','Interpreter','latex','FontSize',style.labelFontSize);
     ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
-    clim([-1, 0]);
+    clim([yield_min, yield_max]);
 
     cb_failure = colorbar;
-    cb_failure.Label.String = '$\hat{\varphi}$';
+    cb_failure.Label.String = '$w/h$';
     cb_failure.Label.Interpreter = 'latex';
     cb_failure.TickLabelInterpreter = 'latex';
     cb_failure.Label.FontSize = style.labelFontSize*2;
@@ -545,64 +553,6 @@ function plot_output(params, plot_data, ~, xMesh, yMesh)
     cb_mode2.Label.FontSize = style.labelFontSize*2;
     cb_mode2.FontSize = style.axesFontSize;
     clim([-1,1]);
-end
-
-
-function plot_data = add_failure_mode_from_cache( ...
-    plot_data, params, struct_mat_Minv, struct_mat_K, ...
-    struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, ...
-    NModes_w, psi_w, xMesh, yMesh)
-
-    eta_f = plot_data.vm_max_steady ./ params.sf_rel;
-
-    idx_failure = find(eta_f >= 1, 1, 'first');
-    if isempty(idx_failure)
-        [~, idx_failure] = max(eta_f);
-    end
-
-    pinf_failure = plot_data.pinf(idx_failure);
-    [struct_mat_Aw, struct_mat_Awdot] = aerodynamic_stiffness_damping( ...
-        struct_mat_Aw_not_scaled, struct_mat_Awdot_not_scaled, ...
-        pinf_failure, params.gamma, params.Minf, params.T0);
-
-    plot_data.failure_mode_shape = compute_coupled_mode_shape( ...
-        struct_mat_Minv, struct_mat_K + struct_mat_Aw, struct_mat_Awdot, ...
-        NModes_w, psi_w, xMesh, yMesh);
-end
-
-function mode_shape = compute_coupled_mode_shape( ...
-    struct_mat_Minv, struct_mat_K_total, struct_mat_C, ...
-    NModes_w, psi_w, xMesh, yMesh)
-
-    A = [zeros(NModes_w), eye(NModes_w); ...
-         -struct_mat_Minv * struct_mat_K_total, -struct_mat_Minv * struct_mat_C];
-    [V, D] = eig(A);
-    eigvals = diag(D);
-
-    idx_positive_freq = find(imag(eigvals) > 0);
-    if isempty(idx_positive_freq)
-        [~, idx_mode] = max(real(eigvals));
-    else
-        [~, idx_local] = max(real(eigvals(idx_positive_freq)));
-        idx_mode = idx_positive_freq(idx_local);
-    end
-
-    q_mode = V(1:NModes_w, idx_mode);
-    [~, i_ref] = max(abs(q_mode));
-    if abs(q_mode(i_ref)) > 0
-        q_mode = q_mode * exp(-1i * angle(q_mode(i_ref)));
-    end
-
-    mode_shape = zeros(size(xMesh));
-    for n = 1:numel(psi_w)
-        mode_shape = mode_shape + q_mode(n) * psi_w{n}(xMesh, yMesh);
-    end
-
-    mode_shape = real(mode_shape);
-    max_abs_mode = max(abs(mode_shape(:)));
-    if max_abs_mode > 0
-        mode_shape = mode_shape / max_abs_mode;
-    end
 end
 
 
