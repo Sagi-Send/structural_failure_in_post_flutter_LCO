@@ -1,10 +1,11 @@
 classdef FlutterAnalysisCache
     methods(Static)
-        function [cache_loaded, lambda_F, plot_data] = try_load(results_mat_file, ~, force_resolve)
+        function [cache_loaded, lambda_F, plot_data, q_history] = try_load(results_mat_file, ~, force_resolve)
             cache_loaded = false;
             lambda_F = nan;
             plot_data = struct();
-            cache_format_version = 2;
+            q_history = [];
+            minimum_cache_format_version = 2;
 
             if force_resolve || ~isfile(results_mat_file)
                 return;
@@ -23,10 +24,15 @@ classdef FlutterAnalysisCache
             S_plot = load(results_mat_file, 'plot_data');
             plot_data = S_plot.plot_data;
             if ~isfield(plot_data, 'cache_format_version') || ...
-                    plot_data.cache_format_version ~= cache_format_version || ...
+                    plot_data.cache_format_version < minimum_cache_format_version || ...
                     ~isfield(plot_data, 'yield_deformation_wh')
                 plot_data = struct();
                 return;
+            end
+
+            if ismember('q_history', vars_in_file)
+                S_q = load(results_mat_file, 'q_history');
+                q_history = S_q.q_history;
             end
             cache_loaded = true;
         end
@@ -34,13 +40,14 @@ classdef FlutterAnalysisCache
         function plot_data = save_with_plot_data(results_mat_file, params, solve_data)
             plot_data = FlutterAnalysisCache.extract_plot_data(params, solve_data);
             lambda_F = solve_data.lambda_F;
+            q_history = solve_data.q_history;
 
             save(results_mat_file, ...
-                'params', 'lambda_F', 'plot_data', '-v7');
+                'params', 'lambda_F', 'plot_data', 'q_history', '-v7');
         end
 
         function plot_data = extract_plot_data(params, solve_data)
-            plot_data.cache_format_version = 2;
+            plot_data.cache_format_version = 3;
             plot_data.lambda = params.lambda;
             plot_data.t_eval = params.t_eval;
             plot_data.pinf = params.pinf_sweep;

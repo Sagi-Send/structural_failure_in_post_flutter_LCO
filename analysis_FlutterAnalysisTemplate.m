@@ -2,11 +2,10 @@ clc;
 clear;
 close all;
 
-define_parallel_processing();
-
-%% Caching controls
+%% Caching and animation controls
 results_mat_file = 'flutter_analysis_cache.mat';
 force_resolve = false;
+video_options = build_video_options();
 
 %% Build structural model
 % Geometry and material parameters are defined inside this script.
@@ -20,11 +19,11 @@ params.nu = nu;
 params.D  = D;
 
 %% Pressure sweep (or load cached results)
-[cache_loaded, lambda_F, plot_data] = FlutterAnalysisCache.try_load( ...
+[cache_loaded, lambda_F, plot_data, q_history] = FlutterAnalysisCache.try_load( ...
     results_mat_file, params, force_resolve);
 
 if ~cache_loaded
-    [w_center, w_i, lambda_F, amp_steady, flutter_onset_idx, ...
+    [w_center, w_i, q_history, lambda_F, amp_steady, flutter_onset_idx, ...
         natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
         vm_upper, vm_lower] = pressure_sweep( ...
         params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
@@ -34,6 +33,7 @@ if ~cache_loaded
     solve_data = struct( ...
         'w_center', w_center, ...
         'w_i', w_i, ...
+        'q_history', q_history, ...
         'lambda_F', lambda_F, ...
         'amp_steady', amp_steady, ...
         'flutter_onset_idx', flutter_onset_idx, ...
@@ -60,6 +60,20 @@ plot_data.mode_shape_1 = mode_1_lowest;
 plot_data.mode_shape_2 = mode_2_lowest;
 
 plot_output(params, plot_data, psi_w, xMesh, yMesh);
+
+if video_options.export_mp4
+    export_plate_response_video( ...
+        params, plot_data, q_history, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, ...
+        struct_mat_B2, xMesh, yMesh, video_options);
+end
+
+function video_options = build_video_options()
+    video_options.export_mp4 = true;
+    video_options.mp4_file = 'plate_response_until_yield.mp4';
+    video_options.fps = 20;
+    video_options.frames_per_lambda = 12;
+    video_options.final_hold_frames = 20;
+end
 
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.a = a;   params.b = b;
@@ -92,12 +106,14 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
 end
 
 
-function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
+function [w_center, w_i, q_history, lambda_F, amp_steady, first_unstable_idx, ...
     natural_frequencies_hz_array, damping_array, unstable, max_real_eig, ...
     vm_upper, vm_lower] = ...
     pressure_sweep(params, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2, ...
     struct_mat_K, struct_mat_Aw_not_scaled, struct_mat_Minv, NModes_w, ...
     struct_mat_L2, struct_mat_Awdot_not_scaled)
+
+    define_parallel_processing();
 
     a          = params.a;  b = params.b;
     h          = params.h;
@@ -140,6 +156,7 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
     % Preallocation
     w_center                     = zeros(n_pressures, Nt);
     w_i                          = zeros(n_pressures, nPts, Nt);
+    q_history                    = zeros(n_pressures, Nt, NModes_w);
     vm_upper                     = zeros(n_pressures, nPts, Nt);
     vm_lower                     = zeros(n_pressures, nPts, Nt);
 
@@ -171,6 +188,7 @@ function [w_center, w_i, lambda_F, amp_steady, first_unstable_idx, ...
 
         % store full-field + center trace
         w_i(idx,:,:)    = reshape(w_i_local, [1, nPts, Nt]);
+        q_history(idx,:,:) = reshape(Q, [1, Nt, NModes_w]);
         w_center_local  = w_i_local(i_center, :);
         w_center(idx,:) = w_center_local;
 
@@ -533,8 +551,8 @@ function plot_output(params, plot_data, ~, xMesh, yMesh)
     ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
     cb_mode1 = colorbar;
-    cb_mode1.Label.String = '$\hat{\phi}$';
-    cb_mode1.Label.Interpreter = 'latex';
+    cb_mode1.Label.String = 'Mode shape';
+    cb_mode1.Label.Interpreter = 'none';
     cb_mode1.TickLabelInterpreter = 'latex';
     cb_mode1.Label.FontSize = style.labelFontSize*2;
     cb_mode1.FontSize = style.axesFontSize;
@@ -547,12 +565,644 @@ function plot_output(params, plot_data, ~, xMesh, yMesh)
     ylabel('$y/b$','Interpreter','latex','FontSize',style.labelFontSize);
     axis square
     cb_mode2 = colorbar;
-    cb_mode2.Label.String = '$\hat{\phi}$';
-    cb_mode2.Label.Interpreter = 'latex';
+    cb_mode2.Label.String = 'Mode shape';
+    cb_mode2.Label.Interpreter = 'none';
     cb_mode2.TickLabelInterpreter = 'latex';
     cb_mode2.Label.FontSize = style.labelFontSize*2;
     cb_mode2.FontSize = style.axesFontSize;
     clim([-1,1]);
+end
+
+
+function export_plate_response_video( ...
+    params, plot_data, q_history, psi_w, psi_w_xx, psi_w_yy, psi_w_xy, ...
+    struct_mat_B2, xMesh, yMesh, video_options)
+
+    if isempty(q_history)
+        export_cached_summary_video(params, plot_data, video_options);
+        return;
+    end
+
+    style = apply_paper_plot_settings();
+
+    lambda = plot_data.lambda(:);
+    lambda_F = plot_data.lambda_F;
+    if ~isscalar(lambda_F)
+        lambda_F = lambda_F(1);
+    end
+
+    t_eval = params.t_eval(:).';
+    amp_norm = plot_data.A_steady(:) ./ params.h;
+    eta_f_steady = plot_data.vm_max_steady(:) ./ params.sf_rel;
+    damping_array = real(plot_data.damping_array);
+
+    idx_steady = select_time_window_indices(t_eval, 1-params.steady_frac, 1.0);
+    [eta_panel_time, yield_lambda_idx, yield_time_idx, failure_reached] = ...
+        compute_panel_failure_history( ...
+        params, q_history, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2);
+
+    [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
+        eta_panel_time, idx_steady, video_options.frames_per_lambda);
+    if isempty(frame_lambda_idx)
+        warning('Skipping MP4 export because no animation frames were selected.');
+        return;
+    end
+
+    x_points_plot = reshape(xMesh, 1, []);
+    y_points_plot = reshape(yMesh, 1, []);
+    Psi_plot = build_shape_matrix(psi_w, x_points_plot, y_points_plot);
+
+    wh_abs_max = compute_max_abs_wh( ...
+        q_history, frame_lambda_idx, frame_time_idx, Psi_plot, size(xMesh), params.h);
+    wh_abs_max = max(wh_abs_max, 1e-6);
+    contour_levels = linspace(-wh_abs_max, wh_abs_max, 61);
+
+    amp_ylim = [0, max(amp_norm) * 1.08];
+    if amp_ylim(2) <= amp_ylim(1)
+        amp_ylim(2) = amp_ylim(1) + 1e-6;
+    end
+
+    eta_ylim = [0, max(max(eta_f_steady) * 1.08, 1.05)];
+
+    damping_finite = damping_array(isfinite(damping_array));
+    if isempty(damping_finite)
+        damping_limits = [-1e-3, 1e-3];
+    else
+        damping_span = max(max(damping_finite) - min(damping_finite), 1e-3);
+        damping_limits = [ ...
+            min(min(damping_finite), 0) - 0.08*damping_span, ...
+            max(max(damping_finite), 0) + 0.08*damping_span];
+    end
+
+    fig = figure( ...
+        'Color', style.figureColor, ...
+        'Position', [100, 100, 1900, 1050]);
+    tl = tiledlayout(fig, 2, 2, ...
+        'TileSpacing', style.tileSpacing, ...
+        'Padding', style.tilePadding);
+
+    ax_amp = nexttile(tl, 1);
+    hold(ax_amp, 'on');
+    grid(ax_amp, 'off');
+    h_amp_line = plot(ax_amp, nan, nan, '-o', ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerSize', style.markerSize, ...
+        'Color', [0.00, 0.45, 0.74]);
+    h_amp_marker = plot(ax_amp, nan, nan, 'o', ...
+        'MarkerSize', style.markerSize*1.6, ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerEdgeColor', 'k', ...
+        'MarkerFaceColor', [0.00, 0.45, 0.74]);
+    if isfinite(lambda_F)
+        h_amp_flutter = xline(ax_amp, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_amp_flutter.Visible = 'off';
+    else
+        h_amp_flutter = gobjects(0);
+    end
+    xlim(ax_amp, [0, max(lambda)]);
+    ylim(ax_amp, amp_ylim);
+    xlabel(ax_amp, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_amp, '$(w_{center}/h)_{amp}^{steady}$', ...
+        'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_amp, 'Normalized steady amplitude', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_fail = nexttile(tl, 3);
+    hold(ax_fail, 'on');
+    grid(ax_fail, 'off');
+    h_fail_line = plot(ax_fail, nan, nan, '-o', ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerSize', style.markerSize, ...
+        'Color', [0.47, 0.67, 0.19]);
+    h_fail_marker = plot(ax_fail, nan, nan, 'o', ...
+        'MarkerSize', style.markerSize*1.6, ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerEdgeColor', 'k', ...
+        'MarkerFaceColor', [0.47, 0.67, 0.19]);
+    yline(ax_fail, 1, '--k', '$\eta_f = 1$', ...
+        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize);
+    if isfinite(lambda_F)
+        h_fail_flutter = xline(ax_fail, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_fail_flutter.Visible = 'off';
+    else
+        h_fail_flutter = gobjects(0);
+    end
+    xlim(ax_fail, [0, max(lambda)]);
+    ylim(ax_fail, eta_ylim);
+    xlabel(ax_fail, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_fail, '$\eta_f$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_fail, 'Failure criterion', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_stability = nexttile(tl, 2);
+    hold(ax_stability, 'on');
+    grid(ax_stability, 'off');
+    n_modes = size(damping_array, 1);
+    h_damping = gobjects(n_modes, 1);
+    for mode_idx = 1:n_modes
+        h_damping(mode_idx) = plot(ax_stability, nan, nan, '-', ...
+            'Color', [0.12, 0.47, 0.71], ...
+            'LineWidth', 1.0);
+    end
+    yline(ax_stability, 0, '--k', '$\zeta = 0$', ...
+        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize);
+    h_stability_current = scatter(ax_stability, nan, nan, style.scatterSizeMedium*0.65, ...
+        'filled', 'MarkerFaceColor', [0.85, 0.33, 0.10], ...
+        'MarkerEdgeColor', 'k');
+    h_stability_lambda = xline(ax_stability, lambda(1), ':', 'Current $\lambda$', ...
+        'LineWidth', style.lineWidth, 'Color', [0.25, 0.25, 0.25]);
+    if isfinite(lambda_F)
+        h_stability_flutter = xline(ax_stability, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_stability_flutter.Visible = 'off';
+    else
+        h_stability_flutter = gobjects(0);
+    end
+    xlim(ax_stability, [0, max(lambda)]);
+    ylim(ax_stability, damping_limits);
+    xlabel(ax_stability, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_stability, '$\zeta$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_stability, 'Linear stability analysis', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_plate = nexttile(tl, 4);
+    hold(ax_plate, 'on');
+    grid(ax_plate, 'off');
+    h_contour = contourf(ax_plate, xMesh./params.a, yMesh./params.b, ...
+        zeros(size(xMesh)), contour_levels, 'LineStyle', 'none');
+    colormap(ax_plate, parula(256));
+    clim(ax_plate, [-wh_abs_max, wh_abs_max]);
+    axis(ax_plate, 'square');
+    xlim(ax_plate, [0, 1]);
+    ylim(ax_plate, [-0.5, 0.5]);
+    xlabel(ax_plate, '$x/a$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_plate, '$y/b$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    cb_plate = colorbar(ax_plate);
+    cb_plate.Label.String = '$w/h$';
+    cb_plate.Label.Interpreter = 'latex';
+    cb_plate.TickLabelInterpreter = 'latex';
+    cb_plate.Label.FontSize = style.labelFontSize;
+    cb_plate.FontSize = style.axesFontSize;
+
+    if failure_reached
+        video_title = sprintf( ...
+            'Animation stops at first yield: $\\lambda = %.1f$, $t = %.2f$ s', ...
+            lambda(yield_lambda_idx), t_eval(yield_time_idx));
+    else
+        video_title = sprintf( ...
+            'No yield reached in the scanned range ($\\lambda_{max} = %.1f$)', ...
+            lambda(end));
+    end
+    sgtitle(tl, video_title, 'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    writer = VideoWriter(video_options.mp4_file, 'MPEG-4');
+    writer.FrameRate = video_options.fps;
+    open(writer);
+
+    n_frames = numel(frame_lambda_idx);
+    progress_step = max(1, ceil(0.10 * n_frames));
+    last_frame = [];
+    fprintf('MP4 export progress: 0/%d (0%%)\n', n_frames);
+
+    for frame_idx = 1:n_frames
+        lambda_idx = frame_lambda_idx(frame_idx);
+        time_idx = frame_time_idx(frame_idx);
+        lambda_now = lambda(lambda_idx);
+
+        set(h_amp_line, 'XData', lambda(1:lambda_idx), 'YData', amp_norm(1:lambda_idx));
+        set(h_amp_marker, 'XData', lambda_now, 'YData', amp_norm(lambda_idx));
+
+        set(h_fail_line, 'XData', lambda(1:lambda_idx), 'YData', eta_f_steady(1:lambda_idx));
+        set(h_fail_marker, 'XData', lambda_now, 'YData', eta_f_steady(lambda_idx));
+
+        for mode_idx = 1:n_modes
+            set(h_damping(mode_idx), ...
+                'XData', lambda(1:lambda_idx), ...
+                'YData', damping_array(mode_idx, 1:lambda_idx));
+        end
+        set(h_stability_current, ...
+            'XData', lambda_now * ones(n_modes, 1), ...
+            'YData', damping_array(:, lambda_idx));
+        h_stability_lambda.Value = lambda_now;
+
+        set_flutter_marker_visibility(h_amp_flutter, lambda_now, lambda_F);
+        set_flutter_marker_visibility(h_fail_flutter, lambda_now, lambda_F);
+        set_flutter_marker_visibility(h_stability_flutter, lambda_now, lambda_F);
+
+        q_frame = reshape(q_history(lambda_idx, time_idx, :), 1, []);
+        wh_frame = reshape(modal2physical(q_frame, Psi_plot), size(xMesh));
+        wh_frame = real(wh_frame) ./ params.h;
+
+        delete(h_contour);
+        h_contour = contourf(ax_plate, xMesh./params.a, yMesh./params.b, ...
+            wh_frame, contour_levels, 'LineStyle', 'none');
+        clim(ax_plate, [-wh_abs_max, wh_abs_max]);
+        title(ax_plate, sprintf( ...
+            '$\\lambda = %.1f$, $t = %.2f$ s, $\\eta_f(t) = %.3f$', ...
+            lambda_now, t_eval(time_idx), eta_panel_time(lambda_idx, time_idx)), ...
+            'Interpreter', 'latex', 'FontSize', style.titleFontSize);
+
+        drawnow;
+        last_frame = capture_figure_frame(fig);
+        writeVideo(writer, last_frame);
+
+        if mod(frame_idx, progress_step) == 0 || frame_idx == n_frames
+            fprintf('MP4 export progress: %d/%d (%.0f%%)\n', ...
+                frame_idx, n_frames, 100*frame_idx/n_frames);
+        end
+    end
+
+    for hold_idx = 1:video_options.final_hold_frames
+        writeVideo(writer, last_frame);
+    end
+
+    close(writer);
+    close(fig);
+
+    if failure_reached
+        fprintf(['Saved MP4 animation to %s (stopped at yield: lambda = %.3f, ' ...
+            't = %.3f s)\n'], video_options.mp4_file, ...
+            lambda(yield_lambda_idx), t_eval(yield_time_idx));
+    else
+        fprintf('Saved MP4 animation to %s (no yield reached).\n', ...
+            video_options.mp4_file);
+    end
+end
+
+
+function export_cached_summary_video(params, plot_data, video_options)
+    style = apply_paper_plot_settings();
+
+    lambda = plot_data.lambda(:);
+    lambda_F = plot_data.lambda_F;
+    if ~isscalar(lambda_F)
+        lambda_F = lambda_F(1);
+    end
+
+    amp_norm = plot_data.A_steady(:) ./ params.h;
+    eta_f_steady = plot_data.vm_max_steady(:) ./ params.sf_rel;
+    damping_array = real(plot_data.damping_array);
+
+    if isfield(plot_data, 'yield_lambda') && ~isempty(plot_data.yield_lambda)
+        yield_lambda = plot_data.yield_lambda(1);
+    else
+        yield_lambda = lambda(end);
+    end
+    if isfield(plot_data, 'yield_time') && ~isempty(plot_data.yield_time)
+        yield_time = plot_data.yield_time(1);
+    else
+        yield_time = params.t_eval(end);
+    end
+
+    stop_lambda_idx = find(lambda >= yield_lambda - 10*eps(max(1, abs(yield_lambda))), 1, 'first');
+    if isempty(stop_lambda_idx)
+        stop_lambda_idx = find(eta_f_steady >= 1, 1, 'first');
+    end
+    if isempty(stop_lambda_idx)
+        stop_lambda_idx = numel(lambda);
+    end
+
+    amp_ylim = [0, max(amp_norm) * 1.08];
+    if amp_ylim(2) <= amp_ylim(1)
+        amp_ylim(2) = amp_ylim(1) + 1e-6;
+    end
+
+    eta_ylim = [0, max(max(eta_f_steady) * 1.08, 1.05)];
+
+    damping_finite = damping_array(isfinite(damping_array));
+    if isempty(damping_finite)
+        damping_limits = [-1e-3, 1e-3];
+    else
+        damping_span = max(max(damping_finite) - min(damping_finite), 1e-3);
+        damping_limits = [ ...
+            min(min(damping_finite), 0) - 0.08*damping_span, ...
+            max(max(damping_finite), 0) + 0.08*damping_span];
+    end
+
+    yield_wh = plot_data.yield_deformation_wh;
+    yield_abs_max = max(abs(yield_wh(:)));
+    if yield_abs_max <= 0
+        yield_abs_max = 1e-6;
+    end
+    contour_levels = linspace(-yield_abs_max, yield_abs_max, 61);
+
+    x_yield = linspace(0, params.a, size(yield_wh, 2));
+    y_yield = linspace(-params.b/2, params.b/2, size(yield_wh, 1));
+    [xYieldMesh, yYieldMesh] = meshgrid(x_yield, y_yield);
+
+    fig = figure( ...
+        'Color', style.figureColor, ...
+        'Position', [100, 100, 1900, 1050]);
+    tl = tiledlayout(fig, 2, 2, ...
+        'TileSpacing', style.tileSpacing, ...
+        'Padding', style.tilePadding);
+
+    ax_amp = nexttile(tl, 1);
+    hold(ax_amp, 'on');
+    grid(ax_amp, 'off');
+    h_amp_line = plot(ax_amp, nan, nan, '-o', ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerSize', style.markerSize, ...
+        'Color', [0.00, 0.45, 0.74]);
+    h_amp_marker = plot(ax_amp, nan, nan, 'o', ...
+        'MarkerSize', style.markerSize*1.6, ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerEdgeColor', 'k', ...
+        'MarkerFaceColor', [0.00, 0.45, 0.74]);
+    if isfinite(lambda_F)
+        h_amp_flutter = xline(ax_amp, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_amp_flutter.Visible = 'off';
+    else
+        h_amp_flutter = gobjects(0);
+    end
+    xlim(ax_amp, [0, max(lambda)]);
+    ylim(ax_amp, amp_ylim);
+    xlabel(ax_amp, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_amp, '$(w_{center}/h)_{amp}^{steady}$', ...
+        'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_amp, 'Normalized steady amplitude', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_fail = nexttile(tl, 3);
+    hold(ax_fail, 'on');
+    grid(ax_fail, 'off');
+    h_fail_line = plot(ax_fail, nan, nan, '-o', ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerSize', style.markerSize, ...
+        'Color', [0.47, 0.67, 0.19]);
+    h_fail_marker = plot(ax_fail, nan, nan, 'o', ...
+        'MarkerSize', style.markerSize*1.6, ...
+        'LineWidth', style.highlightLineWidth, ...
+        'MarkerEdgeColor', 'k', ...
+        'MarkerFaceColor', [0.47, 0.67, 0.19]);
+    yline(ax_fail, 1, '--k', '$\eta_f = 1$', ...
+        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize);
+    if isfinite(lambda_F)
+        h_fail_flutter = xline(ax_fail, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_fail_flutter.Visible = 'off';
+    else
+        h_fail_flutter = gobjects(0);
+    end
+    xlim(ax_fail, [0, max(lambda)]);
+    ylim(ax_fail, eta_ylim);
+    xlabel(ax_fail, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_fail, '$\eta_f$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_fail, 'Failure criterion', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_stability = nexttile(tl, 2);
+    hold(ax_stability, 'on');
+    grid(ax_stability, 'off');
+    n_modes = size(damping_array, 1);
+    h_damping = gobjects(n_modes, 1);
+    for mode_idx = 1:n_modes
+        h_damping(mode_idx) = plot(ax_stability, nan, nan, '-', ...
+            'Color', [0.12, 0.47, 0.71], ...
+            'LineWidth', 1.0);
+    end
+    yline(ax_stability, 0, '--k', '$\zeta = 0$', ...
+        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize);
+    h_stability_current = scatter(ax_stability, nan, nan, style.scatterSizeMedium*0.65, ...
+        'filled', 'MarkerFaceColor', [0.85, 0.33, 0.10], ...
+        'MarkerEdgeColor', 'k');
+    h_stability_lambda = xline(ax_stability, lambda(1), ':', 'Current $\lambda$', ...
+        'LineWidth', style.lineWidth, 'Color', [0.25, 0.25, 0.25]);
+    if isfinite(lambda_F)
+        h_stability_flutter = xline(ax_stability, lambda_F, '--', '$\lambda_F$', ...
+            'LineWidth', style.lineWidth, ...
+            'Color', [0.85, 0.33, 0.10]);
+        h_stability_flutter.Visible = 'off';
+    else
+        h_stability_flutter = gobjects(0);
+    end
+    xlim(ax_stability, [0, max(lambda)]);
+    ylim(ax_stability, damping_limits);
+    xlabel(ax_stability, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_stability, '$\zeta$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    title(ax_stability, 'Linear stability analysis', ...
+        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    ax_plate = nexttile(tl, 4);
+    contourf(ax_plate, xYieldMesh./params.a, yYieldMesh./params.b, ...
+        yield_wh, contour_levels, 'LineStyle', 'none');
+    colormap(ax_plate, parula(256));
+    clim(ax_plate, [-yield_abs_max, yield_abs_max]);
+    axis(ax_plate, 'square');
+    xlim(ax_plate, [0, 1]);
+    ylim(ax_plate, [-0.5, 0.5]);
+    xlabel(ax_plate, '$x/a$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    ylabel(ax_plate, '$y/b$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
+    cb_plate = colorbar(ax_plate);
+    cb_plate.Label.String = '$w/h$';
+    cb_plate.Label.Interpreter = 'latex';
+    cb_plate.TickLabelInterpreter = 'latex';
+    cb_plate.Label.FontSize = style.labelFontSize;
+    cb_plate.FontSize = style.axesFontSize;
+
+    video_title = sprintf([ ...
+        'Cache-driven animation using stored summary data. ' ...
+        'Plate panel shows cached failure deformation at $\\lambda = %.1f$, $t = %.2f$ s'], ...
+        yield_lambda, yield_time);
+    sgtitle(tl, video_title, 'FontSize', style.titleFontSize, 'Interpreter', 'latex');
+
+    writer = VideoWriter(video_options.mp4_file, 'MPEG-4');
+    writer.FrameRate = video_options.fps;
+    open(writer);
+
+    progress_step = max(1, ceil(0.10 * stop_lambda_idx));
+    last_frame = [];
+    fprintf('MP4 export progress: 0/%d (0%%)\n', stop_lambda_idx);
+
+    for lambda_idx = 1:stop_lambda_idx
+        lambda_now = lambda(lambda_idx);
+
+        set(h_amp_line, 'XData', lambda(1:lambda_idx), 'YData', amp_norm(1:lambda_idx));
+        set(h_amp_marker, 'XData', lambda_now, 'YData', amp_norm(lambda_idx));
+
+        set(h_fail_line, 'XData', lambda(1:lambda_idx), 'YData', eta_f_steady(1:lambda_idx));
+        set(h_fail_marker, 'XData', lambda_now, 'YData', eta_f_steady(lambda_idx));
+
+        for mode_idx = 1:n_modes
+            set(h_damping(mode_idx), ...
+                'XData', lambda(1:lambda_idx), ...
+                'YData', damping_array(mode_idx, 1:lambda_idx));
+        end
+        set(h_stability_current, ...
+            'XData', lambda_now * ones(n_modes, 1), ...
+            'YData', damping_array(:, lambda_idx));
+        h_stability_lambda.Value = lambda_now;
+
+        set_flutter_marker_visibility(h_amp_flutter, lambda_now, lambda_F);
+        set_flutter_marker_visibility(h_fail_flutter, lambda_now, lambda_F);
+        set_flutter_marker_visibility(h_stability_flutter, lambda_now, lambda_F);
+
+        title(ax_plate, sprintf([ ...
+            'Cached failure deformation reference: current $\\lambda = %.1f$, ' ...
+            '$\\lambda_y = %.1f$'], lambda_now, yield_lambda), ...
+            'Interpreter', 'latex', 'FontSize', style.titleFontSize);
+
+        drawnow;
+        last_frame = capture_figure_frame(fig);
+        writeVideo(writer, last_frame);
+
+        if mod(lambda_idx, progress_step) == 0 || lambda_idx == stop_lambda_idx
+            fprintf('MP4 export progress: %d/%d (%.0f%%)\n', ...
+                lambda_idx, stop_lambda_idx, 100*lambda_idx/stop_lambda_idx);
+        end
+    end
+
+    for hold_idx = 1:video_options.final_hold_frames
+        writeVideo(writer, last_frame);
+    end
+
+    close(writer);
+    close(fig);
+    fprintf(['Saved MP4 animation to %s using cached summary data ' ...
+        '(no recomputation).\n'], video_options.mp4_file);
+end
+
+
+function [eta_panel_time, yield_lambda_idx, yield_time_idx, failure_reached] = ...
+    compute_panel_failure_history(params, q_history, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2)
+
+    x_lin = linspace(0, params.a, params.disc_stress);
+    y_lin = linspace(-params.b/2, params.b/2, params.disc_stress);
+    [Xg, Yg] = meshgrid(x_lin, y_lin);
+    x_points = reshape(Xg, 1, []);
+    y_points = reshape(Yg, 1, []);
+
+    Psi_xx = build_shape_matrix(psi_w_xx, x_points, y_points);
+    Psi_yy = build_shape_matrix(psi_w_yy, x_points, y_points);
+    Psi_xy = build_shape_matrix(psi_w_xy, x_points, y_points);
+
+    n_pressures = size(q_history, 1);
+    Nt = size(q_history, 2);
+    n_modes = size(q_history, 3);
+
+    eta_panel_time = zeros(n_pressures, Nt);
+    for idx = 1:n_pressures
+        Q = reshape(q_history(idx, :, :), [Nt, n_modes]);
+        [vm_upper, vm_lower] = von_mises( ...
+            Q, Psi_xx, Psi_yy, Psi_xy, struct_mat_B2, ...
+            params.h, params.nu, params.D);
+
+        vm_panel_time = max(max(vm_upper, vm_lower), [], 1);
+        eta_panel_time(idx, :) = reshape(vm_panel_time ./ params.sf_rel, 1, []);
+    end
+
+    yield_lambda_idx = find(any(eta_panel_time >= 1, 2), 1, 'first');
+    failure_reached = ~isempty(yield_lambda_idx);
+
+    if failure_reached
+        yield_time_idx = find(eta_panel_time(yield_lambda_idx, :) >= 1, 1, 'first');
+    else
+        [~, idx_linear] = max(eta_panel_time(:));
+        [yield_lambda_idx, yield_time_idx] = ind2sub(size(eta_panel_time), idx_linear);
+    end
+end
+
+
+function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
+    eta_panel_time, idx_steady, frames_per_lambda)
+
+    n_pressures = size(eta_panel_time, 1);
+    max_frames = n_pressures * (frames_per_lambda + 1);
+    frame_lambda_idx = zeros(max_frames, 1);
+    frame_time_idx = zeros(max_frames, 1);
+    write_idx = 0;
+
+    for idx = 1:n_pressures
+        yield_time_idx = find(eta_panel_time(idx, :) >= 1, 1, 'first');
+
+        if isempty(yield_time_idx)
+            time_candidates = idx_steady;
+        else
+            if yield_time_idx >= idx_steady(1)
+                time_candidates = idx_steady(1):yield_time_idx;
+            else
+                time_candidates = 1:yield_time_idx;
+            end
+        end
+
+        time_samples = sample_animation_indices(time_candidates, frames_per_lambda);
+        append_yield = ~isempty(yield_time_idx) && time_samples(end) ~= yield_time_idx;
+
+        idx_range = write_idx + (1:(numel(time_samples) + double(append_yield)));
+        frame_lambda_idx(idx_range) = idx;
+        frame_time_idx(idx_range(1:numel(time_samples))) = time_samples(:);
+        if append_yield
+            frame_time_idx(idx_range(end)) = yield_time_idx;
+        end
+        write_idx = idx_range(end);
+
+        if ~isempty(yield_time_idx)
+            break;
+        end
+    end
+
+    frame_lambda_idx = frame_lambda_idx(1:write_idx);
+    frame_time_idx = frame_time_idx(1:write_idx);
+end
+
+
+function idx_samples = sample_animation_indices(idx_candidates, max_samples)
+    idx_candidates = idx_candidates(:).';
+    if isempty(idx_candidates)
+        idx_samples = [];
+        return;
+    end
+
+    if numel(idx_candidates) <= max_samples
+        idx_samples = idx_candidates;
+        return;
+    end
+
+    sample_positions = unique(round(linspace(1, numel(idx_candidates), max_samples)), 'stable');
+    idx_samples = idx_candidates(sample_positions);
+end
+
+
+function wh_abs_max = compute_max_abs_wh( ...
+    q_history, frame_lambda_idx, frame_time_idx, Psi_plot, mesh_size, h)
+
+    wh_abs_max = 0;
+    for frame_idx = 1:numel(frame_lambda_idx)
+        q_frame = reshape(q_history(frame_lambda_idx(frame_idx), frame_time_idx(frame_idx), :), 1, []);
+        wh_frame = reshape(modal2physical(q_frame, Psi_plot), mesh_size);
+        wh_abs_max = max(wh_abs_max, max(abs(real(wh_frame(:)) ./ h)));
+    end
+end
+
+
+function set_flutter_marker_visibility(h_marker, lambda_now, lambda_F)
+    if isempty(h_marker) || ~isgraphics(h_marker)
+        return;
+    end
+
+    if isfinite(lambda_F) && lambda_now >= lambda_F
+        h_marker.Visible = 'on';
+    else
+        h_marker.Visible = 'off';
+    end
+end
+
+
+function frame = capture_figure_frame(fig)
+    try
+        frame = getframe(fig);
+    catch
+        rgb_image = print(fig, '-RGBImage', '-r150');
+        frame = im2frame(rgb_image);
+    end
 end
 
 
