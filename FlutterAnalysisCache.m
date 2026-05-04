@@ -1,18 +1,18 @@
 classdef FlutterAnalysisCache
     methods(Static)
-        function [cache_loaded, lambda_F, plot_data, q_history] = try_load(results_mat_file, ~, force_resolve)
+        function [cache_loaded, lambda_F, plot_data, q_history] = try_load(results_mat_file, params, force_resolve)
             cache_loaded = false;
             lambda_F = nan;
             plot_data = struct();
             q_history = [];
-            minimum_cache_format_version = 2;
+            cache_format_version = 3;
 
             if force_resolve || ~isfile(results_mat_file)
                 return;
             end
 
             vars_in_file = {whos('-file', results_mat_file).name};
-            if ~ismember('plot_data', vars_in_file)
+            if ~ismember('plot_data', vars_in_file) || ~ismember('q_history', vars_in_file)
                 return;
             end
 
@@ -24,15 +24,23 @@ classdef FlutterAnalysisCache
             S_plot = load(results_mat_file, 'plot_data');
             plot_data = S_plot.plot_data;
             if ~isfield(plot_data, 'cache_format_version') || ...
-                    plot_data.cache_format_version < minimum_cache_format_version || ...
+                    plot_data.cache_format_version ~= cache_format_version || ...
                     ~isfield(plot_data, 'yield_deformation_wh')
                 plot_data = struct();
                 return;
             end
 
-            if ismember('q_history', vars_in_file)
-                S_q = load(results_mat_file, 'q_history');
-                q_history = S_q.q_history;
+            if ~FlutterAnalysisCache.is_compatible_with_params(plot_data, params)
+                plot_data = struct();
+                return;
+            end
+
+            S_q = load(results_mat_file, 'q_history');
+            q_history = S_q.q_history;
+            if isempty(q_history)
+                q_history = [];
+                plot_data = struct();
+                return;
             end
             cache_loaded = true;
         end
@@ -145,6 +153,45 @@ classdef FlutterAnalysisCache
             Lref = params.a;
 
             reduced_freq_array = (2 * pi * natural_frequencies_hz_array) * (Lref / Uinf);
+        end
+
+        function is_compatible = is_compatible_with_params(plot_data, params)
+            if ~isfield(plot_data, 'lambda') || ~isfield(params, 'lambda') || ...
+                    ~isfield(plot_data, 'pinf') || ~isfield(params, 'pinf_sweep') || ...
+                    ~isfield(plot_data, 't_eval') || ~isfield(params, 't_eval') || ...
+                    ~isfield(plot_data, 'a') || ~isfield(params, 'a') || ...
+                    ~isfield(plot_data, 'b') || ~isfield(params, 'b') || ...
+                    ~isfield(plot_data, 'h') || ~isfield(params, 'h')
+                is_compatible = false;
+                return;
+            end
+
+            is_compatible = ...
+                FlutterAnalysisCache.matches_vector(plot_data.lambda, params.lambda) && ...
+                FlutterAnalysisCache.matches_vector(plot_data.pinf, params.pinf_sweep) && ...
+                FlutterAnalysisCache.matches_vector(plot_data.t_eval, params.t_eval) && ...
+                FlutterAnalysisCache.matches_scalar(plot_data.a, params.a) && ...
+                FlutterAnalysisCache.matches_scalar(plot_data.b, params.b) && ...
+                FlutterAnalysisCache.matches_scalar(plot_data.h, params.h);
+        end
+
+        function is_match = matches_vector(actual, expected)
+            actual = actual(:);
+            expected = expected(:);
+            if numel(actual) ~= numel(expected)
+                is_match = false;
+                return;
+            end
+
+            scale = max([1; abs(actual); abs(expected)]);
+            tol = 1e-12 * scale;
+            is_match = all(abs(actual - expected) <= tol);
+        end
+
+        function is_match = matches_scalar(actual, expected)
+            scale = max(1, max(abs([actual, expected])));
+            tol = 1e-12 * scale;
+            is_match = abs(actual - expected) <= tol;
         end
     end
 end

@@ -90,7 +90,7 @@ function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.y_points = reshape(yMesh, 1, []);
 
     params.disc_stress      = 20;
-    params.disc_pressure    = 30;
+    params.disc_pressure    = 60;
     params.pinf_sweep = linspace(0, 120e3, params.disc_pressure); % [Pa]
     params.gamma = 1.4;
     params.Minf = 4.0;
@@ -580,8 +580,8 @@ function export_plate_response_video( ...
     struct_mat_B2, xMesh, yMesh, video_options)
 
     if isempty(q_history)
-        export_cached_summary_video(params, plot_data, video_options);
-        return;
+        error(['Cannot export the plate animation without q_history. ' ...
+            'Regenerate the cache so the modal histories are saved.']);
     end
 
     style = apply_paper_plot_settings();
@@ -597,21 +597,13 @@ function export_plate_response_video( ...
     eta_f_steady = plot_data.vm_max_steady(:) ./ params.sf_rel;
     damping_array = real(plot_data.damping_array);
     w_center_norm = plot_data.w_center ./ params.h;
-    [idx_pre_flutter, idx_post_flutter] = ...
-        select_flutter_reference_indices(lambda, plot_data);
     time_response_idx = select_time_response_indices(t_eval, 1.0);
-    w_pre_response = w_center_norm(idx_pre_flutter, :);
-    w_post_response = w_center_norm(idx_post_flutter, :);
-    response_ylim_pre = compute_time_response_ylim(w_pre_response(time_response_idx));
-    response_ylim_post = compute_time_response_ylim(w_post_response(time_response_idx));
 
-    idx_steady = select_time_window_indices(t_eval, 1-params.steady_frac, 1.0);
     [eta_panel_time, yield_lambda_idx, yield_time_idx, failure_reached] = ...
         compute_panel_failure_history( ...
         params, q_history, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2);
 
-    [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
-        eta_panel_time, idx_steady, video_options.frames_per_lambda);
+    [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule(eta_panel_time);
     if isempty(frame_lambda_idx)
         warning('Skipping MP4 export because no animation frames were selected.');
         return;
@@ -646,6 +638,8 @@ function export_plate_response_video( ...
     fig = figure( ...
         'Color', style.figureColor, ...
         'Position', [80, 60, 1900, 1350]);
+    fig.CloseRequestFcn = @(~, ~) fprintf( ...
+        'Animation export is running; the figure can be closed after export completes.\n');
     tl = tiledlayout(fig, 3, 2, ...
         'TileSpacing', style.tileSpacing, ...
         'Padding', style.tilePadding);
@@ -749,17 +743,9 @@ function export_plate_response_video( ...
     title(ax_stability, 'Linear stability analysis', ...
         'FontSize', style.titleFontSize, 'Interpreter', 'latex');
 
-    ax_pre = nexttile(tl, 4);
-    plot_reference_response( ...
-        ax_pre, t_eval(time_response_idx), w_pre_response(time_response_idx), ...
-        lambda(idx_pre_flutter), ...
-        'before', style, response_ylim_pre, [0.30, 0.45, 0.80]);
-
-    ax_post = nexttile(tl, 5);
-    plot_reference_response( ...
-        ax_post, t_eval(time_response_idx), w_post_response(time_response_idx), ...
-        lambda(idx_post_flutter), ...
-        'after', style, response_ylim_post, [0.80, 0.35, 0.10]);
+    ax_response = nexttile(tl, 4);
+    [h_response, h_response_marker] = initialize_time_response_panel( ...
+        ax_response, t_eval(time_response_idx), style, [0.30, 0.45, 0.80]);
 
     ax_plate = nexttile(tl, 6);
     hold(ax_plate, 'on');
@@ -826,11 +812,18 @@ function export_plate_response_video( ...
         set_flutter_marker_visibility(h_fail_flutter, lambda_now, lambda_F);
         set_flutter_marker_visibility(h_stability_flutter, lambda_now, lambda_F);
 
+        w_response_now = w_center_norm(lambda_idx, time_response_idx);
+        update_time_response_panel( ...
+            ax_response, h_response, h_response_marker, ...
+            t_eval(time_response_idx), w_response_now, lambda_now, style);
+
         q_frame = reshape(q_history(lambda_idx, time_idx, :), 1, []);
         wh_frame = reshape(modal2physical(q_frame, Psi_plot), size(xMesh));
         wh_frame = real(wh_frame) ./ params.h;
 
-        delete(h_contour);
+        if isgraphics(h_contour)
+            delete(h_contour);
+        end
         h_contour = contourf(ax_plate, xMesh./params.a, yMesh./params.b, ...
             field_for_contour(wh_frame, contour_levels), ...
             contour_levels, 'LineStyle', 'none');
@@ -855,6 +848,9 @@ function export_plate_response_video( ...
     end
 
     close(writer);
+    if isgraphics(fig)
+        fig.CloseRequestFcn = 'closereq';
+    end
     if video_options.close_animation_figure
         close(fig);
     end
@@ -866,315 +862,6 @@ function export_plate_response_video( ...
     else
         fprintf('Saved MP4 animation to %s (no yield reached).\n', ...
             video_options.mp4_file);
-    end
-end
-
-
-function export_cached_summary_video(params, plot_data, video_options)
-    style = apply_paper_plot_settings();
-
-    lambda = plot_data.lambda(:);
-    lambda_F = plot_data.lambda_F;
-    if ~isscalar(lambda_F)
-        lambda_F = lambda_F(1);
-    end
-
-    amp_norm = plot_data.A_steady(:) ./ params.h;
-    eta_f_steady = plot_data.vm_max_steady(:) ./ params.sf_rel;
-    damping_array = real(plot_data.damping_array);
-    w_center_norm = plot_data.w_center ./ params.h;
-    [idx_pre_flutter, idx_post_flutter] = ...
-        select_flutter_reference_indices(lambda, plot_data);
-    time_response_idx = select_time_response_indices(params.t_eval, 1.0);
-    w_pre_response = w_center_norm(idx_pre_flutter, :);
-    w_post_response = w_center_norm(idx_post_flutter, :);
-    response_ylim_pre = compute_time_response_ylim(w_pre_response(time_response_idx));
-    response_ylim_post = compute_time_response_ylim(w_post_response(time_response_idx));
-
-    if isfield(plot_data, 'yield_lambda') && ~isempty(plot_data.yield_lambda)
-        yield_lambda = plot_data.yield_lambda(1);
-    else
-        yield_lambda = lambda(end);
-    end
-    if isfield(plot_data, 'yield_time') && ~isempty(plot_data.yield_time)
-        yield_time = plot_data.yield_time(1);
-    else
-        yield_time = params.t_eval(end);
-    end
-
-    stop_lambda_idx = find(lambda >= yield_lambda - 10*eps(max(1, abs(yield_lambda))), 1, 'first');
-    if isempty(stop_lambda_idx)
-        stop_lambda_idx = find(eta_f_steady >= 1, 1, 'first');
-    end
-    if isempty(stop_lambda_idx)
-        stop_lambda_idx = numel(lambda);
-    end
-
-    amp_ylim = [0, max(amp_norm) * 1.08];
-    if amp_ylim(2) <= amp_ylim(1)
-        amp_ylim(2) = amp_ylim(1) + 1e-6;
-    end
-
-    eta_ylim = [0, max(max(eta_f_steady) * 1.08, 1.05)];
-
-    damping_finite = damping_array(isfinite(damping_array));
-    if isempty(damping_finite)
-        damping_limits = [-1e-3, 1e-3];
-    else
-        damping_span = max(max(damping_finite) - min(damping_finite), 1e-3);
-        damping_limits = [ ...
-            min(min(damping_finite), 0) - 0.08*damping_span, ...
-            max(max(damping_finite), 0) + 0.08*damping_span];
-    end
-
-    yield_wh = plot_data.yield_deformation_wh;
-    yield_abs_max = max(abs(yield_wh(:)));
-    if yield_abs_max <= 0
-        yield_abs_max = 1e-6;
-    end
-    contour_levels = linspace(-yield_abs_max, yield_abs_max, 61);
-
-    x_yield = linspace(0, params.a, size(yield_wh, 2));
-    y_yield = linspace(-params.b/2, params.b/2, size(yield_wh, 1));
-    [xYieldMesh, yYieldMesh] = meshgrid(x_yield, y_yield);
-
-    fig = figure( ...
-        'Color', style.figureColor, ...
-        'Position', [80, 60, 1900, 1350]);
-    tl = tiledlayout(fig, 3, 2, ...
-        'TileSpacing', style.tileSpacing, ...
-        'Padding', style.tilePadding);
-
-    ax_amp = nexttile(tl, 1);
-    hold(ax_amp, 'on');
-    grid(ax_amp, 'off');
-    h_amp_line = plot(ax_amp, nan, nan, '-o', ...
-        'LineWidth', style.highlightLineWidth, ...
-        'MarkerSize', style.markerSize, ...
-        'Color', [0.00, 0.45, 0.74]);
-    h_amp_marker = plot(ax_amp, nan, nan, 'o', ...
-        'MarkerSize', style.markerSize*1.6, ...
-        'LineWidth', style.highlightLineWidth, ...
-        'MarkerEdgeColor', 'k', ...
-        'MarkerFaceColor', [0.00, 0.45, 0.74]);
-    if isfinite(lambda_F)
-        h_amp_flutter = xline(ax_amp, lambda_F, '--', '$\lambda_F$', ...
-            'LineWidth', style.lineWidth, ...
-            'Color', [0.85, 0.33, 0.10], ...
-            'Interpreter', 'latex');
-        h_amp_flutter.Visible = 'off';
-    else
-        h_amp_flutter = gobjects(0);
-    end
-    xlim(ax_amp, [0, max(lambda)]);
-    ylim(ax_amp, amp_ylim);
-    xlabel(ax_amp, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    ylabel(ax_amp, '$(w_{center}/h)_{amp}^{steady}$', ...
-        'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    title(ax_amp, 'Normalized steady amplitude', ...
-        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
-
-    ax_fail = nexttile(tl, 3);
-    hold(ax_fail, 'on');
-    grid(ax_fail, 'off');
-    h_fail_line = plot(ax_fail, nan, nan, '-o', ...
-        'LineWidth', style.highlightLineWidth, ...
-        'MarkerSize', style.markerSize, ...
-        'Color', [0.47, 0.67, 0.19]);
-    h_fail_marker = plot(ax_fail, nan, nan, 'o', ...
-        'MarkerSize', style.markerSize*1.6, ...
-        'LineWidth', style.highlightLineWidth, ...
-        'MarkerEdgeColor', 'k', ...
-        'MarkerFaceColor', [0.47, 0.67, 0.19]);
-    yline(ax_fail, 1, '--k', '$\eta_f = 1$', ...
-        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize, ...
-        'Interpreter', 'latex');
-    if isfinite(lambda_F)
-        h_fail_flutter = xline(ax_fail, lambda_F, '--', '$\lambda_F$', ...
-            'LineWidth', style.lineWidth, ...
-            'Color', [0.85, 0.33, 0.10], ...
-            'Interpreter', 'latex');
-        h_fail_flutter.Visible = 'off';
-    else
-        h_fail_flutter = gobjects(0);
-    end
-    xlim(ax_fail, [0, max(lambda)]);
-    ylim(ax_fail, eta_ylim);
-    xlabel(ax_fail, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    ylabel(ax_fail, '$\eta_f$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    title(ax_fail, 'Failure criterion', ...
-        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
-
-    ax_stability = nexttile(tl, 2);
-    hold(ax_stability, 'on');
-    grid(ax_stability, 'off');
-    n_modes = size(damping_array, 1);
-    h_damping = gobjects(n_modes, 1);
-    for mode_idx = 1:n_modes
-        h_damping(mode_idx) = scatter(ax_stability, nan, nan, ...
-            style.scatterSizeMedium*0.45, ...
-            'o', 'filled', ...
-            'MarkerFaceColor', [0.12, 0.47, 0.71], ...
-            'MarkerEdgeColor', 'none', ...
-            'MarkerFaceAlpha', 0.28, ...
-            'MarkerEdgeAlpha', 0.28);
-    end
-    yline(ax_stability, 0, '--k', '$\zeta = 0$', ...
-        'LineWidth', style.lineWidth, 'FontSize', style.axesFontSize, ...
-        'Interpreter', 'latex');
-    h_stability_current = scatter(ax_stability, nan, nan, style.scatterSizeMedium*0.65, ...
-        'filled', 'MarkerFaceColor', [0.85, 0.33, 0.10], ...
-        'MarkerEdgeColor', 'k');
-    h_stability_lambda = xline(ax_stability, lambda(1), ':', 'Current $\lambda$', ...
-        'LineWidth', style.lineWidth, 'Color', [0.25, 0.25, 0.25], ...
-        'Interpreter', 'latex');
-    if isfinite(lambda_F)
-        h_stability_flutter = xline(ax_stability, lambda_F, '--', '$\lambda_F$', ...
-            'LineWidth', style.lineWidth, ...
-            'Color', [0.85, 0.33, 0.10], ...
-            'Interpreter', 'latex');
-        h_stability_flutter.Visible = 'off';
-    else
-        h_stability_flutter = gobjects(0);
-    end
-    xlim(ax_stability, [0, max(lambda)]);
-    ylim(ax_stability, damping_limits);
-    xlabel(ax_stability, '$\lambda$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    ylabel(ax_stability, '$\zeta$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    title(ax_stability, 'Linear stability analysis', ...
-        'FontSize', style.titleFontSize, 'Interpreter', 'latex');
-
-    ax_pre = nexttile(tl, 4);
-    plot_reference_response( ...
-        ax_pre, params.t_eval(time_response_idx), w_pre_response(time_response_idx), ...
-        lambda(idx_pre_flutter), ...
-        'before', style, response_ylim_pre, [0.30, 0.45, 0.80]);
-
-    ax_post = nexttile(tl, 5);
-    plot_reference_response( ...
-        ax_post, params.t_eval(time_response_idx), w_post_response(time_response_idx), ...
-        lambda(idx_post_flutter), ...
-        'after', style, response_ylim_post, [0.80, 0.35, 0.10]);
-
-    ax_plate = nexttile(tl, 6);
-    h_contour = contourf(ax_plate, xYieldMesh./params.a, yYieldMesh./params.b, ...
-        field_for_contour(zeros(size(yield_wh)), contour_levels), ...
-        contour_levels, 'LineStyle', 'none');
-    colormap(ax_plate, parula(256));
-    clim(ax_plate, [-yield_abs_max, yield_abs_max]);
-    axis(ax_plate, 'square');
-    xlim(ax_plate, [0, 1]);
-    ylim(ax_plate, [-0.5, 0.5]);
-    xlabel(ax_plate, '$x/a$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    ylabel(ax_plate, '$y/b$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    cb_plate = colorbar(ax_plate);
-    cb_plate.Label.String = '$w/h$';
-    cb_plate.Label.Interpreter = 'latex';
-    cb_plate.TickLabelInterpreter = 'latex';
-    cb_plate.Label.FontSize = style.labelFontSize;
-    cb_plate.FontSize = style.axesFontSize;
-
-    video_title = sprintf([ ...
-        'Cache-driven animation using stored summary data. ' ...
-        'Plate panel shows cached failure deformation at $\\lambda = %.1f$, $t = %.2f$ s'], ...
-        yield_lambda, yield_time);
-    sgtitle(tl, video_title, 'FontSize', style.titleFontSize, 'Interpreter', 'latex');
-
-    writer = VideoWriter(video_options.mp4_file, 'MPEG-4');
-    writer.FrameRate = video_options.fps;
-    open(writer);
-
-    progress_step = max(1, ceil(0.10 * stop_lambda_idx));
-    last_frame = [];
-    fprintf('MP4 export progress: 0/%d (0%%)\n', stop_lambda_idx);
-
-    for lambda_idx = 1:stop_lambda_idx
-        lambda_now = lambda(lambda_idx);
-
-        set(h_amp_line, 'XData', lambda(1:lambda_idx), 'YData', amp_norm(1:lambda_idx));
-        set(h_amp_marker, 'XData', lambda_now, 'YData', amp_norm(lambda_idx));
-
-        set(h_fail_line, 'XData', lambda(1:lambda_idx), 'YData', eta_f_steady(1:lambda_idx));
-        set(h_fail_marker, 'XData', lambda_now, 'YData', eta_f_steady(lambda_idx));
-
-        for mode_idx = 1:n_modes
-            set(h_damping(mode_idx), ...
-                'XData', lambda(1:lambda_idx), ...
-                'YData', damping_array(mode_idx, 1:lambda_idx));
-        end
-        set(h_stability_current, ...
-            'XData', lambda_now * ones(n_modes, 1), ...
-            'YData', damping_array(:, lambda_idx));
-        h_stability_lambda.Value = lambda_now;
-
-        set_flutter_marker_visibility(h_amp_flutter, lambda_now, lambda_F);
-        set_flutter_marker_visibility(h_fail_flutter, lambda_now, lambda_F);
-        set_flutter_marker_visibility(h_stability_flutter, lambda_now, lambda_F);
-
-        pressure_scale = cached_plate_pressure_scale( ...
-            lambda_idx, stop_lambda_idx, lambda, amp_norm, eta_f_steady);
-        wh_frame = pressure_scale * yield_wh;
-        if isgraphics(h_contour)
-            delete(h_contour);
-        end
-        h_contour = contourf(ax_plate, xYieldMesh./params.a, yYieldMesh./params.b, ...
-            field_for_contour(wh_frame, contour_levels), ...
-            contour_levels, 'LineStyle', 'none');
-        clim(ax_plate, [-yield_abs_max, yield_abs_max]);
-
-        title(ax_plate, sprintf([ ...
-            'Pressure-scaled cached deformation: current $\\lambda = %.1f$, ' ...
-            '$\\lambda_y = %.1f$'], lambda_now, yield_lambda), ...
-            'Interpreter', 'latex', 'FontSize', style.titleFontSize);
-
-        drawnow;
-        last_frame = capture_figure_frame(fig);
-        writeVideo(writer, last_frame);
-
-        if mod(lambda_idx, progress_step) == 0 || lambda_idx == stop_lambda_idx
-            fprintf('MP4 export progress: %d/%d (%.0f%%)\n', ...
-                lambda_idx, stop_lambda_idx, 100*lambda_idx/stop_lambda_idx);
-        end
-    end
-
-    for hold_idx = 1:video_options.final_hold_frames
-        writeVideo(writer, last_frame);
-    end
-
-    close(writer);
-    if video_options.close_animation_figure
-        close(fig);
-    end
-    fprintf(['Saved MP4 animation to %s using cached summary data ' ...
-        '(no recomputation).\n'], video_options.mp4_file);
-end
-
-
-function [idx_pre_flutter, idx_post_flutter] = ...
-    select_flutter_reference_indices(lambda, plot_data)
-
-    n_lambda = numel(lambda);
-    flutter_idx = nan;
-    if isfield(plot_data, 'flutter_idx') && ~isempty(plot_data.flutter_idx)
-        flutter_idx = plot_data.flutter_idx(1);
-    end
-
-    if isfinite(flutter_idx) && flutter_idx >= 2
-        idx_pre_flutter = flutter_idx - 1;
-    else
-        idx_pre_flutter = max(1, min(n_lambda, round(n_lambda/3)));
-    end
-
-    if isfinite(flutter_idx) && flutter_idx <= n_lambda
-        idx_post_flutter = max(flutter_idx, idx_pre_flutter + 1);
-    else
-        idx_post_flutter = max(idx_pre_flutter + 1, round(2*n_lambda/3));
-    end
-
-    idx_pre_flutter = min(max(idx_pre_flutter, 1), n_lambda);
-    idx_post_flutter = min(max(idx_post_flutter, 1), n_lambda);
-    if idx_post_flutter == idx_pre_flutter && idx_post_flutter < n_lambda
-        idx_post_flutter = idx_post_flutter + 1;
     end
 end
 
@@ -1202,15 +889,13 @@ function response_ylim = compute_time_response_ylim(w_response)
 end
 
 
-function plot_reference_response( ...
-    ax, t_eval, w_center_norm, lambda_value, relation_label, style, response_ylim, line_color)
-
+function [h_response, h_marker] = initialize_time_response_panel(ax, t_eval, style, line_color)
     hold(ax, 'on');
     grid(ax, 'off');
-    plot(ax, t_eval, w_center_norm, '-', ...
+    h_response = plot(ax, nan, nan, '-', ...
         'LineWidth', style.highlightLineWidth, ...
         'Color', line_color);
-    plot(ax, t_eval(end), w_center_norm(end), 'o', ...
+    h_marker = plot(ax, nan, nan, 'o', ...
         'MarkerSize', style.markerSize*1.4, ...
         'MarkerFaceColor', line_color, ...
         'MarkerEdgeColor', 'k', ...
@@ -1220,32 +905,21 @@ function plot_reference_response( ...
         'HandleVisibility', 'off', ...
         'Interpreter', 'latex');
     xlim(ax, [t_eval(1), t_eval(end)]);
-    ylim(ax, response_ylim);
     xlabel(ax, '$t$ [sec]', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
     ylabel(ax, '$w_{center}/h$', 'Interpreter', 'latex', 'FontSize', style.labelFontSize);
-    title(ax, sprintf('Time response %s flutter ($\\lambda = %.1f$)', ...
-        relation_label, lambda_value), ...
-        'Interpreter', 'latex', 'FontSize', style.titleFontSize);
+    title(ax, 'Time response', 'Interpreter', 'latex', 'FontSize', style.titleFontSize);
 end
 
 
-function pressure_scale = cached_plate_pressure_scale( ...
-    lambda_idx, stop_lambda_idx, lambda, amp_norm, eta_f_steady)
+function update_time_response_panel( ...
+    ax, h_response, h_marker, t_eval, w_center_norm, lambda_value, style)
 
-    if stop_lambda_idx >= 1 && isfinite(amp_norm(stop_lambda_idx)) && ...
-            abs(amp_norm(stop_lambda_idx)) > 0
-        pressure_scale = amp_norm(lambda_idx) / amp_norm(stop_lambda_idx);
-    elseif stop_lambda_idx >= 1 && isfinite(eta_f_steady(stop_lambda_idx)) && ...
-            eta_f_steady(stop_lambda_idx) > 0
-        pressure_scale = eta_f_steady(lambda_idx) / eta_f_steady(stop_lambda_idx);
-    elseif lambda(stop_lambda_idx) > lambda(1)
-        pressure_scale = (lambda(lambda_idx) - lambda(1)) / ...
-            (lambda(stop_lambda_idx) - lambda(1));
-    else
-        pressure_scale = 1;
-    end
-
-    pressure_scale = min(max(pressure_scale, 0), 1);
+    response_ylim = compute_time_response_ylim(w_center_norm);
+    set(h_response, 'XData', t_eval, 'YData', w_center_norm);
+    set(h_marker, 'XData', t_eval(end), 'YData', w_center_norm(end));
+    ylim(ax, response_ylim);
+    title(ax, sprintf('Time response ($\\lambda = %.1f$)', lambda_value), ...
+        'Interpreter', 'latex', 'FontSize', style.titleFontSize);
 end
 
 
@@ -1301,63 +975,27 @@ function [eta_panel_time, yield_lambda_idx, yield_time_idx, failure_reached] = .
 end
 
 
-function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
-    eta_panel_time, idx_steady, frames_per_lambda)
+function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule(eta_panel_time)
 
     n_pressures = size(eta_panel_time, 1);
-    max_frames = n_pressures * (frames_per_lambda + 1);
-    frame_lambda_idx = zeros(max_frames, 1);
-    frame_time_idx = zeros(max_frames, 1);
-    write_idx = 0;
+    Nt = size(eta_panel_time, 2);
+    frame_lambda_idx = zeros(n_pressures, 1);
+    frame_time_idx = zeros(n_pressures, 1);
 
     for idx = 1:n_pressures
         yield_time_idx = find(eta_panel_time(idx, :) >= 1, 1, 'first');
-
+        frame_lambda_idx(idx) = idx;
         if isempty(yield_time_idx)
-            time_candidates = idx_steady;
+            frame_time_idx(idx) = Nt;
         else
-            if yield_time_idx >= idx_steady(1)
-                time_candidates = idx_steady(1):yield_time_idx;
-            else
-                time_candidates = 1:yield_time_idx;
-            end
-        end
-
-        time_samples = sample_animation_indices(time_candidates, frames_per_lambda);
-        append_yield = ~isempty(yield_time_idx) && time_samples(end) ~= yield_time_idx;
-
-        idx_range = write_idx + (1:(numel(time_samples) + double(append_yield)));
-        frame_lambda_idx(idx_range) = idx;
-        frame_time_idx(idx_range(1:numel(time_samples))) = time_samples(:);
-        if append_yield
-            frame_time_idx(idx_range(end)) = yield_time_idx;
-        end
-        write_idx = idx_range(end);
-
-        if ~isempty(yield_time_idx)
+            frame_time_idx(idx) = yield_time_idx;
             break;
         end
     end
 
-    frame_lambda_idx = frame_lambda_idx(1:write_idx);
-    frame_time_idx = frame_time_idx(1:write_idx);
-end
-
-
-function idx_samples = sample_animation_indices(idx_candidates, max_samples)
-    idx_candidates = idx_candidates(:).';
-    if isempty(idx_candidates)
-        idx_samples = [];
-        return;
-    end
-
-    if numel(idx_candidates) <= max_samples
-        idx_samples = idx_candidates;
-        return;
-    end
-
-    sample_positions = unique(round(linspace(1, numel(idx_candidates), max_samples)), 'stable');
-    idx_samples = idx_candidates(sample_positions);
+    last_frame_idx = find(frame_lambda_idx > 0, 1, 'last');
+    frame_lambda_idx = frame_lambda_idx(1:last_frame_idx);
+    frame_time_idx = frame_time_idx(1:last_frame_idx);
 end
 
 
@@ -1387,11 +1025,21 @@ end
 
 
 function frame = capture_figure_frame(fig)
+    if ~isgraphics(fig)
+        error('Animation figure was closed before MP4 export completed.');
+    end
+
+    drawnow;
     try
         frame = getframe(fig);
-    catch
-        rgb_image = print(fig, '-RGBImage', '-r150');
-        frame = im2frame(rgb_image);
+    catch first_error
+        pause(0.05);
+        drawnow;
+        try
+            frame = getframe(fig);
+        catch
+            rethrow(first_error);
+        end
     end
 end
 
