@@ -613,10 +613,7 @@ function export_plate_response_video( ...
     y_points_plot = reshape(yMesh, 1, []);
     Psi_plot = build_shape_matrix(psi_w, x_points_plot, y_points_plot);
 
-    wh_abs_max = compute_max_abs_wh( ...
-        q_history, frame_lambda_idx, frame_time_idx, Psi_plot, size(xMesh), params.h);
-    wh_abs_max = max(wh_abs_max, 1e-6);
-    contour_levels = linspace(-wh_abs_max, wh_abs_max, 61);
+    [contour_levels, plate_color_limits] = frame_contour_levels(zeros(size(xMesh)));
 
     amp_ylim = [0, max(amp_norm) * 1.08];
     if amp_ylim(2) <= amp_ylim(1)
@@ -754,7 +751,7 @@ function export_plate_response_video( ...
         field_for_contour(zeros(size(xMesh)), contour_levels), ...
         contour_levels, 'LineStyle', 'none');
     colormap(ax_plate, parula(256));
-    clim(ax_plate, [-wh_abs_max, wh_abs_max]);
+    clim(ax_plate, plate_color_limits);
     axis(ax_plate, 'square');
     xlim(ax_plate, [0, 1]);
     ylim(ax_plate, [-0.5, 0.5]);
@@ -820,6 +817,7 @@ function export_plate_response_video( ...
         q_frame = reshape(q_history(lambda_idx, time_idx, :), 1, []);
         wh_frame = reshape(modal2physical(q_frame, Psi_plot), size(xMesh));
         wh_frame = real(wh_frame) ./ params.h;
+        [contour_levels, plate_color_limits] = frame_contour_levels(wh_frame);
 
         if isgraphics(h_contour)
             delete(h_contour);
@@ -827,11 +825,9 @@ function export_plate_response_video( ...
         h_contour = contourf(ax_plate, xMesh./params.a, yMesh./params.b, ...
             field_for_contour(wh_frame, contour_levels), ...
             contour_levels, 'LineStyle', 'none');
-        clim(ax_plate, [-wh_abs_max, wh_abs_max]);
-        title(ax_plate, sprintf( ...
-            '$\\lambda = %.1f$, $t = %.2f$ s, $\\eta_f(t) = %.3f$', ...
-            lambda_now, t_eval(time_idx), eta_panel_time(lambda_idx, time_idx)), ...
-            'Interpreter', 'latex', 'FontSize', style.titleFontSize);
+        clim(ax_plate, plate_color_limits);
+        title(ax_plate,...
+            "Physical Response", 'FontSize', style.titleFontSize);
 
         drawnow;
         last_frame = capture_figure_frame(fig);
@@ -999,15 +995,11 @@ function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule(eta
 end
 
 
-function wh_abs_max = compute_max_abs_wh( ...
-    q_history, frame_lambda_idx, frame_time_idx, Psi_plot, mesh_size, h)
-
-    wh_abs_max = 0;
-    for frame_idx = 1:numel(frame_lambda_idx)
-        q_frame = reshape(q_history(frame_lambda_idx(frame_idx), frame_time_idx(frame_idx), :), 1, []);
-        wh_frame = reshape(modal2physical(q_frame, Psi_plot), mesh_size);
-        wh_abs_max = max(wh_abs_max, max(abs(real(wh_frame(:)) ./ h)));
-    end
+function [contour_levels, color_limits] = frame_contour_levels(wh_frame)
+    frame_abs_max = max(abs(wh_frame(:)));
+    frame_abs_max = max(frame_abs_max, 1e-6);
+    color_limits = [-frame_abs_max, frame_abs_max];
+    contour_levels = linspace(color_limits(1), color_limits(2), 61);
 end
 
 
