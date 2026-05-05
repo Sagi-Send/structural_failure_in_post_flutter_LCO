@@ -79,7 +79,7 @@ end
 function params = build_analysis_params(NModes_w, xMesh, yMesh, a, b, D)
     params.a = a;   params.b = b;
     params.T_max_nonlinear_solution = 9;
-    params.Nt = 900;                    % A Nt/T=100 ratio looks best.
+    params.Nt = 1200;                   % Moderate increase over 900 without pushing the solver as hard as 1200.
     params.t_eval = linspace(0, params.T_max_nonlinear_solution, params.Nt);
 
     q0 = zeros(NModes_w,1);
@@ -592,7 +592,7 @@ function export_plate_response_video( ...
         lambda_F = lambda_F(1);
     end
 
-    t_eval = params.t_eval(:).';
+    t_eval = plot_data.t_eval(:).';
     amp_norm = plot_data.A_steady(:) ./ params.h;
     eta_f_steady = plot_data.vm_max_steady(:) ./ params.sf_rel;
     damping_array = real(plot_data.damping_array);
@@ -603,17 +603,22 @@ function export_plate_response_video( ...
         compute_panel_failure_history( ...
         params, q_history, psi_w_xx, psi_w_yy, psi_w_xy, struct_mat_B2);
 
-    [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule(eta_panel_time);
+    x_points_plot = reshape(xMesh, 1, []);
+    y_points_plot = reshape(yMesh, 1, []);
+    Psi_plot = build_shape_matrix(psi_w, x_points_plot, y_points_plot);
+
+    [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
+        eta_panel_time, q_history, Psi_plot, params.h);
     if isempty(frame_lambda_idx)
         warning('Skipping MP4 export because no animation frames were selected.');
         return;
     end
 
-    x_points_plot = reshape(xMesh, 1, []);
-    y_points_plot = reshape(yMesh, 1, []);
-    Psi_plot = build_shape_matrix(psi_w, x_points_plot, y_points_plot);
-
-    [contour_levels, plate_color_limits] = frame_contour_levels(zeros(size(xMesh)));
+    initial_time_idx = frame_time_idx(1);
+    q_initial = reshape(q_history(frame_lambda_idx(1), initial_time_idx, :), 1, []);
+    wh_initial = reshape(modal2physical(q_initial, Psi_plot), size(xMesh));
+    wh_initial = real(wh_initial) ./ params.h;
+    [contour_levels, plate_color_limits] = frame_contour_levels(wh_initial);
 
     amp_ylim = [0, max(amp_norm) * 1.08];
     if amp_ylim(2) <= amp_ylim(1)
@@ -634,7 +639,8 @@ function export_plate_response_video( ...
 
     fig = figure( ...
         'Color', style.figureColor, ...
-        'Position', [80, 60, 1900, 1350]);
+        'Position', [80, 60, 1900, 1350], ...
+        'Resize', 'off');
     fig.CloseRequestFcn = @(~, ~) fprintf( ...
         'Animation export is running; the figure can be closed after export completes.\n');
     tl = tiledlayout(fig, 3, 2, ...
@@ -748,7 +754,7 @@ function export_plate_response_video( ...
     hold(ax_plate, 'on');
     grid(ax_plate, 'off');
     h_contour = contourf(ax_plate, xMesh./params.a, yMesh./params.b, ...
-        field_for_contour(zeros(size(xMesh)), contour_levels), ...
+        field_for_contour(wh_initial, contour_levels), ...
         contour_levels, 'LineStyle', 'none');
     colormap(ax_plate, parula(256));
     clim(ax_plate, plate_color_limits);
@@ -782,6 +788,7 @@ function export_plate_response_video( ...
     n_frames = numel(frame_lambda_idx);
     progress_step = max(1, ceil(0.10 * n_frames));
     last_frame = [];
+    expected_frame_size = [];
     fprintf('MP4 export progress: 0/%d (0%%)\n', n_frames);
 
     for frame_idx = 1:n_frames
@@ -826,11 +833,15 @@ function export_plate_response_video( ...
             field_for_contour(wh_frame, contour_levels), ...
             contour_levels, 'LineStyle', 'none');
         clim(ax_plate, plate_color_limits);
-        title(ax_plate,...
-            "Physical Response", 'FontSize', style.titleFontSize);
+        title(ax_plate, sprintf( ...
+            'Peak physical response ($\\lambda = %.1f$, $t = %.2f$ s)', ...
+            lambda_now, t_eval(time_idx)), ...
+            'Interpreter', 'latex', 'FontSize', style.titleFontSize);
 
         drawnow;
         last_frame = capture_figure_frame(fig);
+        [last_frame, expected_frame_size] = normalize_video_frame( ...
+            last_frame, expected_frame_size);
         writeVideo(writer, last_frame);
 
         if mod(frame_idx, progress_step) == 0 || frame_idx == n_frames
@@ -971,20 +982,31 @@ function [eta_panel_time, yield_lambda_idx, yield_time_idx, failure_reached] = .
 end
 
 
-function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule(eta_panel_time)
+function [frame_lambda_idx, frame_time_idx] = build_animation_frame_schedule( ...
+    eta_panel_time, q_history, Psi_plot, h)
 
     n_pressures = size(eta_panel_time, 1);
     Nt = size(eta_panel_time, 2);
+    n_modes = size(q_history, 3);
     frame_lambda_idx = zeros(n_pressures, 1);
     frame_time_idx = zeros(n_pressures, 1);
 
     for idx = 1:n_pressures
         yield_time_idx = find(eta_panel_time(idx, :) >= 1, 1, 'first');
+        time_limit_idx = Nt;
+        if ~isempty(yield_time_idx)
+            time_limit_idx = yield_time_idx;
+        end
+
+        Q = reshape(q_history(idx, 1:time_limit_idx, :), [time_limit_idx, n_modes]);
+        wh_time = modal2physical(Q, Psi_plot);
+        wh_time = real(wh_time) ./ h;
+        max_deflection_time = max(abs(wh_time), [], 2);
+        [~, peak_local_idx] = max(max_deflection_time);
+
         frame_lambda_idx(idx) = idx;
-        if isempty(yield_time_idx)
-            frame_time_idx(idx) = Nt;
-        else
-            frame_time_idx(idx) = yield_time_idx;
+        frame_time_idx(idx) = peak_local_idx;
+        if ~isempty(yield_time_idx)
             break;
         end
     end
@@ -1032,6 +1054,40 @@ function frame = capture_figure_frame(fig)
         catch
             rethrow(first_error);
         end
+    end
+end
+
+
+function [frame, expected_frame_size] = normalize_video_frame(frame, expected_frame_size)
+    cdata = frame.cdata;
+
+    if isempty(expected_frame_size)
+        expected_frame_size = size(cdata);
+        return;
+    end
+
+    target_h = expected_frame_size(1);
+    target_w = expected_frame_size(2);
+    cdata = crop_or_pad_frame(cdata, target_h, target_w);
+    frame.cdata = cdata;
+end
+
+
+function cdata = crop_or_pad_frame(cdata, target_h, target_w)
+    [current_h, current_w, ~] = size(cdata);
+
+    if current_h > target_h
+        cdata = cdata(1:target_h, :, :);
+    elseif current_h < target_h
+        pad_rows = repmat(cdata(end, :, :), target_h - current_h, 1, 1);
+        cdata = cat(1, cdata, pad_rows);
+    end
+
+    if current_w > target_w
+        cdata = cdata(:, 1:target_w, :);
+    elseif current_w < target_w
+        pad_cols = repmat(cdata(:, end, :), 1, target_w - current_w, 1);
+        cdata = cat(2, cdata, pad_cols);
     end
 end
 
